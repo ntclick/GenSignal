@@ -130,6 +130,7 @@ export default function App() {
     const stored = localStorage.getItem('gensignal_custom_backend')
     return getSanitizedBackendUrl(stored || import.meta.env.VITE_BACKEND_URL)
   })
+  const [openFaq, setOpenFaq]                 = useState(null)
   const [showApiModal, setShowApiModal]       = useState(false)
   const [apiInput, setApiInput]               = useState(customBackendUrl)
 
@@ -517,162 +518,362 @@ export default function App() {
 
       {/* ── LANDING / HOME VIEW ───────────────────────────────────────────── */}
       {activeTab === 'home' && (
-        <div>
-          {/* Hero */}
-          <section className="hero">
-            <div style={{ display: 'inline-flex', alignItems: 'center', gap: 8, padding: '4px 14px', borderRadius: 99, background: 'rgba(6,182,212,0.12)', border: '1px solid rgba(6,182,212,0.3)', color: 'var(--accent-cyan)', fontSize: 12, fontWeight: 700, fontFamily: 'var(--font-mono)', marginBottom: 20 }}>
-              <Sparkles size={14} /> GENLAYER BRADBURY TESTNET · OPTIMISTIC DEMOCRACY
+        <div style={{ paddingTop: 20 }}>
+          {/* Section 1: Hero & Dashboard Live Preview */}
+          <section style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(340px, 1fr))', gap: 40, alignItems: 'center', margin: '20px 0 60px' }}>
+            <div>
+              <div style={{ display: 'inline-flex', alignItems: 'center', gap: 8, padding: '6px 16px', borderRadius: 99, background: 'rgba(168,85,247,0.12)', border: '1px solid rgba(168,85,247,0.3)', color: 'var(--accent-purple)', fontSize: 12, fontWeight: 700, fontFamily: 'var(--font-mono)', marginBottom: 24 }}>
+                <Sparkles size={14} /> GENLAYER BRADBURY TESTNET · OPTIMISTIC DEMOCRACY
+              </div>
+              <h1 style={{ fontSize: 'clamp(36px, 4.5vw, 58px)', fontWeight: 800, lineHeight: 1.1, letterSpacing: '-0.03em', marginBottom: 20 }}>
+                Decentralized AI Trading Oracle <span className="gradient-title">Powered by GenVM</span>
+              </h1>
+              <p style={{ fontSize: 16, color: 'var(--text-secondary)', lineHeight: 1.6, marginBottom: 32 }}>
+                Combining multi-validator AI consensus with on-chain <strong>x402 Micropayments</strong>. Get verifiable, data-backed trading intelligence across 23+ crypto assets.
+              </p>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap' }}>
+                <button
+                  className="btn btn-cyan"
+                  style={{ padding: '14px 32px', fontSize: 15, borderRadius: 99, display: 'flex', alignItems: 'center', gap: 8, boxShadow: '0 0 30px var(--accent-glow)' }}
+                  onClick={() => setActiveTab('dapp')}
+                >
+                  <Zap size={18} /> Launch dApp Platform <ArrowRight size={18} />
+                </button>
+                <a
+                  href="https://github.com/ntclick/GenSignal"
+                  target="_blank" rel="noopener noreferrer"
+                  className="btn btn-ghost"
+                  style={{ padding: '14px 26px', fontSize: 15, borderRadius: 99, display: 'flex', alignItems: 'center', gap: 8 }}
+                >
+                  🔗 Documentation <ExternalLink size={15} />
+                </a>
+              </div>
             </div>
-            <h1>Decentralized AI Trading Oracle Powered by GenVM</h1>
-            <p style={{ fontSize: 16, maxWidth: 720, margin: '0 auto 28px' }}>
-              Combining multi-validator AI consensus with on-chain <strong>x402 Micropayments</strong>. Get verifiable, data-backed trading intelligence across 23+ crypto assets.
-            </p>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 14, flexWrap: 'wrap' }}>
-              <button
-                className="btn btn-cyan"
-                style={{ padding: '12px 28px', fontSize: 15, borderRadius: 99, display: 'flex', alignItems: 'center', gap: 8, boxShadow: '0 0 25px var(--accent-glow)' }}
-                onClick={() => setActiveTab('dapp')}
-              >
-                <Zap size={18} /> Launch dApp Platform <ArrowRight size={18} />
-              </button>
-              <a
-                href={EXPLORER_URL}
-                target="_blank" rel="noopener noreferrer"
-                className="btn btn-ghost"
-                style={{ padding: '12px 24px', fontSize: 15, borderRadius: 99, display: 'flex', alignItems: 'center', gap: 8 }}
-              >
-                🔗 Block Explorer <ExternalLink size={15} />
-              </a>
+
+            {/* Dashboard Preview Card (Right Side) */}
+            <div className="card" style={{ padding: 24, border: '1px solid rgba(168,85,247,0.35)', boxShadow: '0 20px 50px rgba(0,0,0,0.6)', position: 'relative', overflow: 'hidden' }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16, paddingBottom: 12, borderBottom: '1px solid var(--border-glass)' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                  <div style={{ width: 10, height: 10, borderRadius: '50%', background: '#10b981', boxShadow: '0 0 8px #10b981' }} />
+                  <span style={{ fontWeight: 800, fontFamily: 'var(--font-mono)', fontSize: 16, color: '#fff' }}>BTC/USDT</span>
+                  <span style={{ fontSize: 11, fontFamily: 'var(--font-mono)', background: 'rgba(6,182,212,0.15)', color: 'var(--accent-cyan)', padding: '2px 8px', borderRadius: 99 }}>4H SWING</span>
+                </div>
+                <div className="verdict-badge verdict-long" style={{ fontSize: 13, padding: '4px 12px' }}>
+                  LONG · 88% Conf
+                </div>
+              </div>
+
+              <div style={{ background: 'rgba(9,9,11,0.6)', padding: 14, borderRadius: 12, border: '1px solid var(--border-glass)', marginBottom: 16, fontSize: 12, color: 'var(--text-secondary)', fontFamily: 'var(--font-mono)' }}>
+                <div style={{ color: 'var(--accent-cyan)', fontWeight: 700, marginBottom: 4 }}>🏛️ GenVM Validator Thesis:</div>
+                "BTC/USDT (4H): RSI(14) at 58.4 in expansion channel. EMA 50 ($62,450) holding strong support above EMA 200 ($59,800). Bullish continuation target $66,200."
+              </div>
+
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: 11, fontFamily: 'var(--font-mono)', color: 'var(--text-muted)' }}>
+                <span>Fee Paid: 0.05 GEN (x402)</span>
+                <span style={{ color: '#10b981' }}>✔ 100% Consensus Finalized</span>
+              </div>
             </div>
           </section>
 
-          {/* Stats Bar Grid */}
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 16, margin: '16px 0 40px' }}>
-            <div className="card" style={{ textAlign: 'center', padding: '20px 16px', marginBottom: 0 }}>
-              <div style={{ fontSize: 26, fontWeight: 800, color: 'var(--accent-cyan)', fontFamily: 'var(--font-mono)' }}>0.05 GEN</div>
-              <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 4 }}>x402 Micro-fee Settlement</div>
+          {/* Section 2: Statistics Grid */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 20, margin: '40px 0 60px' }}>
+            <div className="stat-card">
+              <div className="stat-value" style={{ color: 'var(--accent-purple)' }}>0.05 GEN</div>
+              <div style={{ fontSize: 13, color: 'var(--text-secondary)' }}>x402 Micro-fee Settlement</div>
             </div>
-            <div className="card" style={{ textAlign: 'center', padding: '20px 16px', marginBottom: 0 }}>
-              <div style={{ fontSize: 26, fontWeight: 800, color: '#10b981', fontFamily: 'var(--font-mono)' }}>100% On-Chain</div>
-              <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 4 }}>GenVM Optimistic Democracy</div>
+            <div className="stat-card">
+              <div className="stat-value" style={{ color: '#10b981' }}>100% On-Chain</div>
+              <div style={{ fontSize: 13, color: 'var(--text-secondary)' }}>GenVM Optimistic Consensus</div>
             </div>
-            <div className="card" style={{ textAlign: 'center', padding: '20px 16px', marginBottom: 0 }}>
-              <div style={{ fontSize: 26, fontWeight: 800, color: 'var(--accent-indigo)', fontFamily: 'var(--font-mono)' }}>23 Assets</div>
-              <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 4 }}>Major Crypto & Memecoins</div>
+            <div className="stat-card">
+              <div className="stat-value" style={{ color: 'var(--accent-cyan)' }}>23 Assets</div>
+              <div style={{ fontSize: 13, color: 'var(--text-secondary)' }}>Crypto & Memecoin Feeds</div>
             </div>
-            <div className="card" style={{ textAlign: 'center', padding: '20px 16px', marginBottom: 0 }}>
-              <div style={{ fontSize: 26, fontWeight: 800, color: '#f59e0b', fontFamily: 'var(--font-mono)' }}>8 Engines</div>
-              <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 4 }}>Technical Strategy Models</div>
+            <div className="stat-card">
+              <div className="stat-value" style={{ color: 'var(--accent-blue)' }}>&lt; 20ms</div>
+              <div style={{ fontSize: 13, color: 'var(--text-secondary)' }}>Cached Server Response Time</div>
+            </div>
+            <div className="stat-card">
+              <div className="stat-value" style={{ color: '#f59e0b' }}>8 Engines</div>
+              <div style={{ fontSize: 13, color: 'var(--text-secondary)' }}>Technical Indicator Models</div>
             </div>
           </div>
 
-          {/* Key Features Grid */}
-          <div style={{ margin: '40px 0' }}>
-            <div style={{ textTransform: 'uppercase', fontSize: 12, letterSpacing: 1.5, color: 'var(--accent-cyan)', fontWeight: 700, textAlign: 'center', marginBottom: 8, fontFamily: 'var(--font-mono)' }}>
-              Core Innovations
+          {/* Section 3: Feature Section (6 Cards) */}
+          <div style={{ margin: '60px 0' }}>
+            <div style={{ textTransform: 'uppercase', fontSize: 12, letterSpacing: 1.5, color: 'var(--accent-purple)', fontWeight: 700, textAlign: 'center', marginBottom: 8, fontFamily: 'var(--font-mono)' }}>
+              Core Utilities
             </div>
-            <h2 style={{ textAlign: 'center', fontSize: 28, fontFamily: 'var(--font-display)', marginBottom: 32 }}>
-              Why GenSignal is Built Differently
+            <h2 style={{ textAlign: 'center', fontSize: 32, fontFamily: 'var(--font-display)', marginBottom: 40, letterSpacing: '-0.02em' }}>
+              Built for Next-Gen Decentralized Trading
             </h2>
             <div className="feature-grid">
               <div className="feature-card">
-                <div style={{ width: 44, height: 44, borderRadius: 12, background: 'rgba(6,182,212,0.15)', border: '1px solid rgba(6,182,212,0.3)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--accent-cyan)', marginBottom: 16 }}>
-                  <Lock size={22} />
+                <div className="icon-box">
+                  <Lock size={24} />
                 </div>
-                <h3 style={{ fontSize: 18, marginBottom: 8 }}>x402 Micropayments</h3>
-                <p style={{ fontSize: 14, color: 'var(--text-secondary)' }}>
-                  Pay a 0.05 GEN fee on-chain via SignalTreasury smart contracts. Real 66-character transaction hashes verified on GenLayer Testnet Explorer.
+                <h3 style={{ fontSize: 19, marginBottom: 10, fontFamily: 'var(--font-display)' }}>x402 Micropayments</h3>
+                <p style={{ fontSize: 14, color: 'var(--text-secondary)', lineHeight: 1.6 }}>
+                  Direct on-chain 0.05 GEN fee settlement executed through dedicated SignalTreasury smart contracts with 66-hex explorer verification.
                 </p>
               </div>
 
               <div className="feature-card">
-                <div style={{ width: 44, height: 44, borderRadius: 12, background: 'rgba(16,185,129,0.15)', border: '1px solid rgba(16,185,129,0.3)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#10b981', marginBottom: 16 }}>
-                  <ShieldCheck size={22} />
+                <div className="icon-box" style={{ background: 'rgba(16,185,129,0.12)', borderColor: 'rgba(16,185,129,0.3)', color: '#10b981' }}>
+                  <ShieldCheck size={24} />
                 </div>
-                <h3 style={{ fontSize: 18, marginBottom: 8 }}>GenVM AI-Validator Consensus</h3>
-                <p style={{ fontSize: 14, color: 'var(--text-secondary)' }}>
-                  Multi-node Optimistic Democracy adjudicates candle indicators on-chain before finalizing consensus decisions on GenLayer.
+                <h3 style={{ fontSize: 19, marginBottom: 10, fontFamily: 'var(--font-display)' }}>GenVM AI-Validator Consensus</h3>
+                <p style={{ fontSize: 14, color: 'var(--text-secondary)', lineHeight: 1.6 }}>
+                  Multi-node Optimistic Democracy adjudicates technical indicator data on-chain before committing consensus state.
                 </p>
               </div>
 
               <div className="feature-card">
-                <div style={{ width: 44, height: 44, borderRadius: 12, background: 'rgba(139,92,246,0.15)', border: '1px solid rgba(139,92,246,0.3)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#8b5cf6', marginBottom: 16 }}>
-                  <Cpu size={22} />
+                <div className="icon-box" style={{ background: 'rgba(6,182,212,0.12)', borderColor: 'rgba(6,182,212,0.3)', color: 'var(--accent-cyan)' }}>
+                  <Cpu size={24} />
                 </div>
-                <h3 style={{ fontSize: 18, marginBottom: 8 }}>Senior Quant Desk Thesis</h3>
-                <p style={{ fontSize: 14, color: 'var(--text-secondary)' }}>
-                  Groq LLaMA 3.3 70B delivers a sharp 2-sentence executive summary citing exact numerical metrics (RSI, RVOL, % Trend, Bollinger Squeeze).
+                <h3 style={{ fontSize: 19, marginBottom: 10, fontFamily: 'var(--font-display)' }}>Groq LLaMA 3.3 70B Quant Desk</h3>
+                <p style={{ fontSize: 14, color: 'var(--text-secondary)', lineHeight: 1.6 }}>
+                  High-speed LLM engine generates 2-sentence defensible summaries citing exact metrics (RSI, RVOL, % Trend, Bollinger Squeeze).
                 </p>
               </div>
 
               <div className="feature-card">
-                <div style={{ width: 44, height: 44, borderRadius: 12, background: 'rgba(245,158,11,0.15)', border: '1px solid rgba(245,158,11,0.3)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#f59e0b', marginBottom: 16 }}>
-                  <Activity size={22} />
+                <div className="icon-box" style={{ background: 'rgba(245,158,11,0.12)', borderColor: 'rgba(245,158,11,0.3)', color: '#f59e0b' }}>
+                  <Activity size={24} />
                 </div>
-                <h3 style={{ fontSize: 18, marginBottom: 8 }}>Multi-Timeframe Desk</h3>
-                <p style={{ fontSize: 14, color: 'var(--text-secondary)' }}>
-                  Seamlessly toggle between 15m Scalp, 1h Intraday, 4h Swing, and 1d Position candles with dual execution and macro context.
+                <h3 style={{ fontSize: 19, marginBottom: 10, fontFamily: 'var(--font-display)' }}>Multi-Timeframe Engine</h3>
+                <p style={{ fontSize: 14, color: 'var(--text-secondary)', lineHeight: 1.6 }}>
+                  Supports 15m Scalp, 1h Intraday, 4h Swing, and 1d Position candles with dual execution and macro context fetching.
+                </p>
+              </div>
+
+              <div className="feature-card">
+                <div className="icon-box" style={{ background: 'rgba(59,130,246,0.12)', borderColor: 'rgba(59,130,246,0.3)', color: 'var(--accent-blue)' }}>
+                  <Layers size={24} />
+                </div>
+                <h3 style={{ fontSize: 19, marginBottom: 10, fontFamily: 'var(--font-display)' }}>23 Crypto & Memecoin Feeds</h3>
+                <p style={{ fontSize: 14, color: 'var(--text-secondary)', lineHeight: 1.6 }}>
+                  Real-time price synchronization for major coins & high-precision memecoins (PEPE, SHIB, WIF, BONK) up to 10 decimal places.
+                </p>
+              </div>
+
+              <div className="feature-card">
+                <div className="icon-box" style={{ background: 'rgba(99,102,241,0.12)', borderColor: 'rgba(99,102,241,0.3)', color: 'var(--accent-indigo)' }}>
+                  <TrendingUp size={24} />
+                </div>
+                <h3 style={{ fontSize: 19, marginBottom: 10, fontFamily: 'var(--font-display)' }}>8 Technical Strategy Engines</h3>
+                <p style={{ fontSize: 14, color: 'var(--text-secondary)', lineHeight: 1.6 }}>
+                  RSI/EMA, BOS/CHOCH, Order Block/FVG, Liquidity Sweeps, Bollinger Bands, SuperTrend, MACD, and VWAP Volume Profile.
                 </p>
               </div>
             </div>
           </div>
 
-          {/* 3-Step Interactive Process */}
-          <div className="card" style={{ background: 'rgba(15,23,42,0.95)', border: '1px solid rgba(6,182,212,0.3)', padding: 32, margin: '40px 0' }}>
-            <div style={{ textTransform: 'uppercase', fontSize: 12, letterSpacing: 1.5, color: 'var(--accent-cyan)', fontWeight: 700, marginBottom: 8, fontFamily: 'var(--font-mono)' }}>
-              Execution Workflow
+          {/* Section 4: How It Works Timeline */}
+          <div className="card" style={{ padding: 40, margin: '60px 0', border: '1px solid rgba(168,85,247,0.35)' }}>
+            <div style={{ textTransform: 'uppercase', fontSize: 12, letterSpacing: 1.5, color: 'var(--accent-purple)', fontWeight: 700, marginBottom: 8, fontFamily: 'var(--font-mono)' }}>
+              Architecture Workflow
             </div>
-            <h2 style={{ fontSize: 24, fontFamily: 'var(--font-display)', marginBottom: 24 }}>
-              How GenSignal Adjudicates On-Chain
+            <h2 style={{ fontSize: 28, fontFamily: 'var(--font-display)', marginBottom: 32 }}>
+              How GenSignal Operates On-Chain
             </h2>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 20 }}>
-              <div style={{ background: 'rgba(255,255,255,0.03)', padding: 20, borderRadius: 14, border: '1px solid var(--border-glass)' }}>
-                <div style={{ fontSize: 12, fontFamily: 'var(--font-mono)', color: 'var(--accent-cyan)', fontWeight: 700, marginBottom: 8 }}>STEP 01</div>
-                <div style={{ fontWeight: 700, fontSize: 16, marginBottom: 6 }}>Select Asset & Strategy</div>
-                <div style={{ fontSize: 13, color: 'var(--text-secondary)' }}>Choose from 23 assets and 8 technical indicators across 4 execution timeframes.</div>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))', gap: 24, position: 'relative' }}>
+              <div style={{ background: 'rgba(9,9,11,0.5)', padding: 24, borderRadius: 18, border: '1px solid var(--border-glass)' }}>
+                <div style={{ fontSize: 12, fontFamily: 'var(--font-mono)', color: 'var(--accent-purple)', fontWeight: 800, marginBottom: 12 }}>STEP 01</div>
+                <h3 style={{ fontSize: 17, marginBottom: 8 }}>Select Asset & Strategy</h3>
+                <p style={{ fontSize: 14, color: 'var(--text-secondary)' }}>
+                  Traders select from 23 crypto assets and 8 technical indicators across 4 execution timeframes.
+                </p>
               </div>
-              <div style={{ background: 'rgba(255,255,255,0.03)', padding: 20, borderRadius: 14, border: '1px solid var(--border-glass)' }}>
-                <div style={{ fontSize: 12, fontFamily: 'var(--font-mono)', color: '#10b981', fontWeight: 700, marginBottom: 8 }}>STEP 02</div>
-                <div style={{ fontWeight: 700, fontSize: 16, marginBottom: 6 }}>Sign & Pay x402 Fee</div>
-                <div style={{ fontSize: 13, color: 'var(--text-secondary)' }}>Authorize 0.05 GEN fee payment using MetaMask personal_sign authentication.</div>
+
+              <div style={{ background: 'rgba(9,9,11,0.5)', padding: 24, borderRadius: 18, border: '1px solid var(--border-glass)' }}>
+                <div style={{ fontSize: 12, fontFamily: 'var(--font-mono)', color: '#10b981', fontWeight: 800, marginBottom: 12 }}>STEP 02</div>
+                <h3 style={{ fontSize: 17, marginBottom: 8 }}>Sign x402 Micropayment</h3>
+                <p style={{ fontSize: 14, color: 'var(--text-secondary)' }}>
+                  Authorize 0.05 GEN fee payment using MetaMask EIP-712 / personal_sign wallet authentication.
+                </p>
               </div>
-              <div style={{ background: 'rgba(255,255,255,0.03)', padding: 20, borderRadius: 14, border: '1px solid var(--border-glass)' }}>
-                <div style={{ fontSize: 12, fontFamily: 'var(--font-mono)', color: '#8b5cf6', fontWeight: 700, marginBottom: 8 }}>STEP 03</div>
-                <div style={{ fontWeight: 700, fontSize: 16, marginBottom: 6 }}>GenVM Validator Consensus</div>
-                <div style={{ fontSize: 13, color: 'var(--text-secondary)' }}>AI-Validators adjudicate on-chain and return verifiable quant signal reports.</div>
+
+              <div style={{ background: 'rgba(9,9,11,0.5)', padding: 24, borderRadius: 18, border: '1px solid var(--border-glass)' }}>
+                <div style={{ fontSize: 12, fontFamily: 'var(--font-mono)', color: 'var(--accent-cyan)', fontWeight: 800, marginBottom: 12 }}>STEP 03</div>
+                <h3 style={{ fontSize: 17, marginBottom: 8 }}>GenVM Validator Consensus</h3>
+                <p style={{ fontSize: 14, color: 'var(--text-secondary)' }}>
+                  Multi-node AI-Validators adjudicate on-chain and record verifiable signal reports to GenLayer state.
+                </p>
               </div>
             </div>
           </div>
 
-          {/* Asset Showcase Preview */}
-          <div style={{ margin: '40px 0' }}>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
-              <div>
-                <h2 style={{ fontSize: 22, fontFamily: 'var(--font-display)', margin: 0 }}>Supported Assets & Memecoins</h2>
-                <p style={{ fontSize: 13, color: 'var(--text-secondary)', margin: 0 }}>Instant live price feeds with 10-decimal precision</p>
-              </div>
-              <button className="btn btn-cyan" onClick={() => setActiveTab('dapp')} style={{ fontSize: 13 }}>
-                View All 23 Assets <ArrowRight size={14} />
-              </button>
+          {/* Section 5: Technology Stack */}
+          <div style={{ margin: '60px 0' }}>
+            <div style={{ textTransform: 'uppercase', fontSize: 12, letterSpacing: 1.5, color: 'var(--accent-cyan)', fontWeight: 700, textAlign: 'center', marginBottom: 8, fontFamily: 'var(--font-mono)' }}>
+              Ecosystem Integrations
             </div>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: 14 }}>
-              {PRESET_COINS.slice(0, 8).map(c => (
-                <div
-                  key={c.sym}
-                  className="card"
-                  onClick={() => { setSelectedCoin(c.sym); setActiveTab('dapp'); }}
-                  style={{ marginBottom: 0, padding: 16, cursor: 'pointer', transition: 'all 0.2s ease', border: '1px solid var(--border-glass)' }}
+            <h2 style={{ textAlign: 'center', fontSize: 28, fontFamily: 'var(--font-display)', marginBottom: 32 }}>
+              Powered by Industry-Leading Protocols
+            </h2>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 16 }}>
+              <div className="card" style={{ textAlign: 'center', padding: 20, marginBottom: 0 }}>
+                <div style={{ fontWeight: 800, fontSize: 16, color: '#fff', marginBottom: 4 }}>GenLayer Bradbury</div>
+                <div style={{ fontSize: 12, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>Chain ID: 4221</div>
+              </div>
+              <div className="card" style={{ textAlign: 'center', padding: 20, marginBottom: 0 }}>
+                <div style={{ fontWeight: 800, fontSize: 16, color: 'var(--accent-purple)', marginBottom: 4 }}>Groq LLaMA 3.3 70B</div>
+                <div style={{ fontSize: 12, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>Versatile Quant Model</div>
+              </div>
+              <div className="card" style={{ textAlign: 'center', padding: 20, marginBottom: 0 }}>
+                <div style={{ fontWeight: 800, fontSize: 16, color: '#10b981', marginBottom: 4 }}>MetaMask Web3</div>
+                <div style={{ fontSize: 12, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>EIP-712 & EIP-3085</div>
+              </div>
+              <div className="card" style={{ textAlign: 'center', padding: 20, marginBottom: 0 }}>
+                <div style={{ fontWeight: 800, fontSize: 16, color: 'var(--accent-cyan)', marginBottom: 4 }}>Binance Klines API</div>
+                <div style={{ fontSize: 12, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>Multi-Timeframe Feed</div>
+              </div>
+              <div className="card" style={{ textAlign: 'center', padding: 20, marginBottom: 0 }}>
+                <div style={{ fontWeight: 800, fontSize: 16, color: '#f59e0b', marginBottom: 4 }}>CoinGecko API</div>
+                <div style={{ fontSize: 12, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>15m In-Memory Cache</div>
+              </div>
+            </div>
+          </div>
+
+          {/* Section 6: Developer Section */}
+          <div className="card" style={{ padding: 36, margin: '60px 0', background: 'rgba(15,23,42,0.85)' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 20 }}>
+              <div>
+                <div style={{ textTransform: 'uppercase', fontSize: 12, letterSpacing: 1.5, color: 'var(--accent-purple)', fontWeight: 700, marginBottom: 6, fontFamily: 'var(--font-mono)' }}>
+                  Developer Hub
+                </div>
+                <h2 style={{ fontSize: 26, fontFamily: 'var(--font-display)', marginBottom: 8 }}>
+                  Open-Source Python & React SDK
+                </h2>
+                <p style={{ fontSize: 14, color: 'var(--text-secondary)', maxWidth: 600 }}>
+                  Build custom trading bots using GenSignal's FastAPI endpoints and GenLayer Python SDK (<code>genlayer-py</code>).
+                </p>
+              </div>
+              <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+                <a
+                  href="https://github.com/ntclick/GenSignal"
+                  target="_blank" rel="noopener noreferrer"
+                  className="btn btn-cyan"
                 >
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
-                    <div style={{ fontWeight: 800, fontSize: 15, fontFamily: 'var(--font-mono)' }}>{c.sym}</div>
-                    <span style={{ fontSize: 11, fontWeight: 700, color: c.change.startsWith('+') ? '#10b981' : '#f43f5e' }}>{c.change}</span>
+                  <Cpu size={16} /> View GitHub Code
+                </a>
+                <a
+                  href={`${activeBackendUrl}/docs`}
+                  target="_blank" rel="noopener noreferrer"
+                  className="btn btn-ghost"
+                >
+                  📄 Swagger API Docs
+                </a>
+              </div>
+            </div>
+          </div>
+
+          {/* Section 7: Security & Verification */}
+          <div style={{ margin: '60px 0' }}>
+            <div style={{ textTransform: 'uppercase', fontSize: 12, letterSpacing: 1.5, color: '#10b981', fontWeight: 700, textAlign: 'center', marginBottom: 8, fontFamily: 'var(--font-mono)' }}>
+              Trust & Transparency
+            </div>
+            <h2 style={{ textAlign: 'center', fontSize: 28, fontFamily: 'var(--font-display)', marginBottom: 32 }}>
+              On-Chain Cryptographic Assurance
+            </h2>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: 20 }}>
+              <div className="feature-card">
+                <ShieldCheck size={28} color="#10b981" style={{ marginBottom: 14 }} />
+                <h3 style={{ fontSize: 18, marginBottom: 8 }}>Verified Smart Contracts</h3>
+                <p style={{ fontSize: 14, color: 'var(--text-secondary)' }}>
+                  SignalOracle and SignalTreasury intelligent contracts compiled and verified on GenLayer Bradbury Testnet.
+                </p>
+              </div>
+              <div className="feature-card">
+                <Lock size={28} color="var(--accent-purple)" style={{ marginBottom: 14 }} />
+                <h3 style={{ fontSize: 18, marginBottom: 8 }}>Decentralized Consensus</h3>
+                <p style={{ fontSize: 14, color: 'var(--text-secondary)' }}>
+                  Non-deterministic AI execution validated through Optimistic Democracy across independent validator nodes.
+                </p>
+              </div>
+              <div className="feature-card">
+                <Activity size={28} color="var(--accent-cyan)" style={{ marginBottom: 14 }} />
+                <h3 style={{ fontSize: 18, marginBottom: 8 }}>Strict Real Execution</h3>
+                <p style={{ fontSize: 14, color: 'var(--text-secondary)' }}>
+                  Zero mock data fallbacks. Real MetaMask personal_sign signatures required for every micropayment transaction.
+                </p>
+              </div>
+            </div>
+          </div>
+
+          {/* Section 8: FAQ Section */}
+          <div style={{ margin: '60px 0' }}>
+            <div style={{ textTransform: 'uppercase', fontSize: 12, letterSpacing: 1.5, color: 'var(--accent-purple)', fontWeight: 700, textAlign: 'center', marginBottom: 8, fontFamily: 'var(--font-mono)' }}>
+              Got Questions?
+            </div>
+            <h2 style={{ textAlign: 'center', fontSize: 28, fontFamily: 'var(--font-display)', marginBottom: 32 }}>
+              Frequently Asked Questions
+            </h2>
+            <div style={{ maxWidth: 800, margin: '0 auto', display: 'flex', flexDirection: 'column', gap: 14 }}>
+              {[
+                {
+                  q: "What is GenSignal?",
+                  a: "GenSignal is a decentralized AI trading oracle on GenLayer Testnet that evaluates 23+ crypto assets using 8 technical strategy models, multi-validator AI consensus, and on-chain x402 micropayments."
+                },
+                {
+                  q: "How does x402 Micropayment work?",
+                  a: "Traders authorize a 0.05 GEN micro-fee directly through MetaMask. The payment is processed on-chain via the SignalTreasury smart contract, producing a 66-character hex transaction hash."
+                },
+                {
+                  q: "What is GenVM Optimistic Democracy?",
+                  a: "GenVM enables Intelligent Contracts to execute non-deterministic AI tasks. Multiple validator nodes inspect live market data, evaluate technical indicators, and reach consensus on-chain."
+                },
+                {
+                  q: "How do I get GenLayer Bradbury Testnet GEN tokens?",
+                  a: "You can request free testnet GEN tokens directly from the official GenLayer Bradbury Faucet at testnet-faucet.genlayer.foundation."
+                }
+              ].map((faq, i) => (
+                <div
+                  key={i}
+                  className="card"
+                  onClick={() => setOpenFaq(openFaq === i ? null : i)}
+                  style={{ marginBottom: 0, cursor: 'pointer', padding: '20px 24px', border: '1px solid var(--border-glass)' }}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontWeight: 700, fontSize: 16 }}>
+                    <span>{faq.q}</span>
+                    <span style={{ fontSize: 18, color: 'var(--accent-cyan)' }}>{openFaq === i ? '−' : '+'}</span>
                   </div>
-                  <div style={{ fontSize: 14, fontWeight: 700, fontFamily: 'var(--font-mono)', color: 'var(--accent-cyan)' }}>{c.price}</div>
-                  <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4 }}>{c.name}</div>
+                  {openFaq === i && (
+                    <div style={{ marginTop: 12, fontSize: 14, color: 'var(--text-secondary)', lineHeight: 1.6, borderTop: '1px solid var(--border-glass)', paddingTop: 12 }}>
+                      {faq.a}
+                    </div>
+                  )}
                 </div>
               ))}
             </div>
           </div>
+
+          {/* Section 9: Footer */}
+          <footer style={{ borderTop: '1px solid var(--border-glass)', paddingTop: 40, marginTop: 60 }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 20, marginBottom: 24 }}>
+              <div className="logo">
+                <div className="logo-icon">
+                  <Cpu size={22} color="#fff" />
+                </div>
+                <div>
+                  <div className="logo-title">GenSignal</div>
+                  <div className="logo-sub">Decentralized AI Trading Oracle on GenLayer</div>
+                </div>
+              </div>
+
+              <div style={{ display: 'flex', gap: 20, fontSize: 13, color: 'var(--text-secondary)' }}>
+                <button className="nav-tab active" onClick={() => setActiveTab('dapp')}>Launch dApp</button>
+                <a href={EXPLORER_URL} target="_blank" rel="noreferrer" className="nav-link">Block Explorer</a>
+                <a href="https://github.com/ntclick/GenSignal" target="_blank" rel="noreferrer" className="nav-link">GitHub</a>
+              </div>
+            </div>
+
+            <div style={{ textAlign: 'center', fontSize: 12, color: 'var(--text-muted)', borderTop: '1px solid rgba(255,255,255,0.05)', paddingTop: 20 }}>
+              © 2026 GenSignal. Built for the GenLayer Ecosystem. Deployed on Vercel & Render Cloud.
+            </div>
+          </footer>
         </div>
       )}
 
