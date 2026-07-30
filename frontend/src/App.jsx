@@ -5,6 +5,7 @@ import {
   Wallet, Lock, Copy, Check, ExternalLink, LogOut, RefreshCw, Activity, Cpu, Sparkles, Loader2
 } from 'lucide-react'
 import { BackendWarmupProvider, useBackendWarmup } from './context/BackendWarmupContext'
+import { SignalResultTerminal } from './components/SignalResultTerminal'
 
 const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || 'http://localhost:8001'
 const LOCAL_STORAGE_WALLET_KEY = 'gensignal_connected_wallet'
@@ -1219,6 +1220,22 @@ function GenSignalAppContent() {
         </div>
       )}
 
+      {/* ── World-Class AI Trading Terminal Result Modal ──────────────────── */}
+      {showResultModal && signalReport && (
+        <SignalResultTerminal
+          signalReport={signalReport}
+          txHash={txHash}
+          paymentTxHash={paymentTxHash}
+          selectedTimeframe={selectedTimeframe}
+          onClose={() => setShowResultModal(false)}
+          onExecuteAnother={() => {
+            setShowResultModal(false)
+            setSignalReport(null)
+          }}
+          explorerUrl={EXPLORER_URL}
+        />
+      )}
+
       {/* ── Log Stream Card ───────────────────────────────────────────────────── */}
       {logs.length > 0 && !loading && (
         <div className="card">
@@ -1234,95 +1251,7 @@ function GenSignalAppContent() {
         </div>
       )}
 
-      {/* ── Signal Verdict Result Popup Modal ─────────────────────────────── */}
-      {showResultModal && signalReport && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)', backdropFilter: 'blur(14px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: 20 }}>
-          <div className="card" style={{ maxWidth: 620, width: '100%', borderColor: 'var(--accent-cyan)', boxShadow: '0 0 40px rgba(6,182,212,0.25)', animation: 'popIn 0.3s cubic-bezier(0.16, 1, 0.3, 1)' }}>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
-              <div className="card-title" style={{ margin: 0, color: 'var(--accent-cyan)', fontSize: 17 }}>
-                <ShieldCheck size={22} /> On-Chain Settled Defensible Thesis
-              </div>
-              <button
-                onClick={() => setShowResultModal(false)}
-                style={{ background: 'rgba(255,255,255,0.08)', border: '1px solid var(--border-glass)', borderRadius: 99, color: '#fff', width: 28, height: 28, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14, fontWeight: 700 }}
-              >
-                ✕
-              </button>
-            </div>
 
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: 'rgba(7,10,18,0.6)', padding: 16, borderRadius: 12, marginBottom: 16, border: '1px solid var(--border-glass)' }}>
-              <div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                  <span style={{ fontSize: 26, fontWeight: 800, fontFamily: 'var(--font-mono)', color: '#fff' }}>{signalReport.pair}</span>
-                  <span style={{ fontSize: 11, fontFamily: 'var(--font-mono)', background: 'rgba(6,182,212,0.15)', color: 'var(--accent-cyan)', padding: '3px 10px', borderRadius: 99, fontWeight: 700 }}>
-                    {selectedTimeframe.toUpperCase()} TF
-                  </span>
-                </div>
-                <div style={{ color: 'var(--text-secondary)', fontSize: 13, marginTop: 4 }}>{signalReport.strategy}</div>
-              </div>
-              <div className={`verdict-badge ${verdictClass(signalReport.verdict)}`} style={{ fontSize: 16, padding: '8px 20px' }}>
-                {signalReport.verdict} · {signalReport.confidence}% Conf
-              </div>
-            </div>
-
-            <div style={{ fontSize: 11, fontFamily: 'var(--font-mono)', color: 'var(--accent-cyan)', background: 'rgba(6,182,212,0.08)', padding: '8px 12px', borderRadius: 8, marginBottom: 16, border: '1px solid rgba(6,182,212,0.2)' }}>
-              {NETWORKS.find(n => n.id === activeNetwork)?.name} | x402 GEN Fee Paid ✔ | Subscriber: {signalReport.user_identity?.slice(0, 12)}…
-            </div>
-
-            {/* Senior Quant Executive Summary Box */}
-            {signalReport.expert_summary && (
-              <div style={{ background: 'linear-gradient(135deg, rgba(6,182,212,0.12), rgba(99,102,241,0.08))', borderLeft: '4px solid var(--accent-cyan)', padding: 14, borderRadius: '0 10px 10px 0', marginBottom: 16, fontSize: 13, color: '#fff', fontStyle: 'italic', lineHeight: 1.6 }}>
-                <div style={{ fontStyle: 'normal', fontWeight: 800, fontSize: 11, color: 'var(--accent-cyan)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 4, fontFamily: 'var(--font-mono)' }}>
-                  🏛️ Executive Quant Desk Thesis:
-                </div>
-                "{signalReport.expert_summary}"
-              </div>
-            )}
-
-            <div style={{ marginBottom: 16, background: 'rgba(15,23,42,0.5)', padding: 14, borderRadius: 10, border: '1px solid var(--border-glass)' }}>
-              <div style={{ fontWeight: 700, fontSize: 13, marginBottom: 8, color: 'var(--accent-cyan)' }}>Supporting Thesis:</div>
-              <ul style={{ paddingLeft: 20, fontSize: 13, color: 'var(--text-primary)', margin: 0 }}>
-                {signalReport.supporting?.map((pt, i) => (
-                  <li key={i} style={{ marginBottom: 4 }}>{pt}</li>
-                ))}
-              </ul>
-            </div>
-
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, marginBottom: 16 }}>
-              <div style={{ background: 'rgba(7,10,18,0.4)', padding: 12, borderRadius: 10, border: '1px solid var(--border-glass)' }}>
-                <div style={{ fontWeight: 700, fontSize: 12, color: 'var(--verdict-neutral)', marginBottom: 4 }}>Counterpoint / Risk:</div>
-                <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>{signalReport.counterpoint}</div>
-              </div>
-              <div style={{ background: 'rgba(7,10,18,0.4)', padding: 12, borderRadius: 10, border: '1px solid var(--border-glass)' }}>
-                <div style={{ fontWeight: 700, fontSize: 12, color: 'var(--verdict-short)', marginBottom: 4 }}>Invalidation Condition:</div>
-                <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>{signalReport.invalidation}</div>
-              </div>
-            </div>
-
-            {txHash && (
-              <div style={{ marginBottom: 20, fontSize: 11, fontFamily: 'var(--font-mono)', background: 'rgba(6,182,212,0.08)', padding: '10px 14px', borderRadius: 8, border: '1px solid rgba(6,182,212,0.2)' }}>
-                <a
-                  href={`${EXPLORER_URL}/tx/${txHash}`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  style={{ color: 'var(--accent-cyan)', textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 6, fontWeight: 700 }}
-                >
-                  🔗 View On-Chain Transaction on GenLayer Explorer <ExternalLink size={13} />
-                </a>
-                <div style={{ color: 'var(--text-muted)', fontSize: 10, marginTop: 4, wordBreak: 'break-all' }}>
-                  Tx Hash: {txHash}
-                </div>
-              </div>
-            )}
-
-            <div style={{ textAlign: 'right' }}>
-              <button className="btn btn-cyan" onClick={() => setShowResultModal(false)}>
-                Close Result
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* ── Signal Verdict Inline Card ────────────────────────────────────────── */}
       {signalReport && (
