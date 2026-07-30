@@ -158,7 +158,7 @@ async def startup_warmup():
     except Exception as e:
         print(f"⚠️ [Startup Warning] Explorer API probe error: {e}")
 
-    # 4. Pre-deploy SignalTreasury Contract ONCE on Startup (fire & forget - address resolved async)
+    # 4. Pre-deploy SignalTreasury Contract ONCE on Startup (non-blocking, fire & forget)
     global _DEPLOYED_TREASURY_ADDRESS
     try:
         if not _DEPLOYED_TREASURY_ADDRESS and CONTRACT_TREASURY.exists():
@@ -169,13 +169,7 @@ async def startup_warmup():
             if deploy_tx:
                 deploy_tx_str = str(deploy_tx).strip()
                 print(f"📜 [Startup] SignalTreasury deploy tx submitted: {deploy_tx_str}")
-                # Resolve actual 42-char contract address from RPC (wait up to 60s)
-                resolved_addr = _resolve_contract_address_from_rpc_sync(deploy_tx_str, max_attempts=20, delay=3)
-                if resolved_addr:
-                    _DEPLOYED_TREASURY_ADDRESS = resolved_addr
-                    print(f"✅ [Startup] SignalTreasury contract address resolved: {_DEPLOYED_TREASURY_ADDRESS}")
-                else:
-                    print(f"⚠️ [Startup] Could not resolve contract address from tx {deploy_tx_str} - will retry on first request")
+                # Do NOT block here - resolve address lazily on first request
     except Exception as te:
         print(f"⚠️ [Startup Treasury Contract Note]: {te}")
 
