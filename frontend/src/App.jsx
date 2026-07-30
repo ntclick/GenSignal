@@ -9,10 +9,43 @@ const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || 'http://localhost:8001'
 const LOCAL_STORAGE_WALLET_KEY = 'gensignal_connected_wallet'
 const PRICE_REFRESH_INTERVAL_SEC = 600
 const EXPLORER_URL = 'https://explorer.testnet-chain.genlayer.com'
+const BRADBURY_CHAIN_ID_HEX = '0x107d' // 4221
+
+const BRADBURY_NETWORK_PARAMS = {
+  chainId: BRADBURY_CHAIN_ID_HEX,
+  chainName: 'GenLayer Bradbury Testnet',
+  nativeCurrency: {
+    name: 'GEN',
+    symbol: 'GEN',
+    decimals: 18
+  },
+  rpcUrls: ['https://bradbury.genlayer.fastnode.io'],
+  blockExplorerUrls: ['https://explorer.testnet-chain.genlayer.com']
+}
+
+const ensureBradburyNetwork = async () => {
+  if (!window.ethereum) return
+  try {
+    await window.ethereum.request({
+      method: 'wallet_switchEthereumChain',
+      params: [{ chainId: BRADBURY_CHAIN_ID_HEX }]
+    })
+  } catch (switchError) {
+    if (switchError.code === 4902 || switchError?.data?.originalError?.code === 4902) {
+      try {
+        await window.ethereum.request({
+          method: 'wallet_addEthereumChain',
+          params: [BRADBURY_NETWORK_PARAMS]
+        })
+      } catch (addError) {
+        console.error('Failed to add Bradbury network to MetaMask:', addError)
+      }
+    }
+  }
+}
 
 const NETWORKS = [
-  { id: 'bradbury', name: 'GenLayer Bradbury Testnet', chainId: 4221, tag: 'Default Testnet' },
-  { id: 'studionet', name: 'GenLayer Studio', chainId: 61999, tag: 'Local Studio' }
+  { id: 'bradbury', name: 'GenLayer Bradbury Testnet', chainId: 4221, tag: 'Official Testnet' }
 ]
 
 const STRATEGIES = [
@@ -118,6 +151,7 @@ export default function App() {
   useEffect(() => {
     const cachedWallet = localStorage.getItem(LOCAL_STORAGE_WALLET_KEY)
     if (cachedWallet && window.ethereum) {
+      ensureBradburyNetwork()
       window.ethereum.request({ method: 'eth_accounts' })
         .then(accounts => {
           if (accounts && accounts.length > 0) {
@@ -244,6 +278,7 @@ export default function App() {
       return
     }
     try {
+      await ensureBradburyNetwork()
       const accounts = await window.ethereum.request({ method: 'eth_requestAccounts' })
       if (accounts.length > 0) {
         const addr = accounts[0]
@@ -452,22 +487,9 @@ export default function App() {
               <Cpu size={13} /> API Server
             </button>
 
-            <select
-              value={activeNetwork}
-              onChange={e => setActiveNetwork(e.target.value)}
-              style={{
-                background: 'rgba(15,23,42,0.9)', border: '1px solid var(--accent-cyan)',
-                borderRadius: 999, color: 'var(--accent-cyan)', padding: '8px 16px',
-                fontSize: 12, fontFamily: 'var(--font-mono)', fontWeight: 700,
-                cursor: 'pointer', outline: 'none'
-              }}
-            >
-              {NETWORKS.map(n => (
-                <option key={n.id} value={n.id}>
-                  {n.name} ({n.tag})
-                </option>
-              ))}
-            </select>
+            <div className="badge-net" style={{ borderColor: 'rgba(6,182,212,0.4)', color: 'var(--accent-cyan)', background: 'rgba(6,182,212,0.1)', padding: '6px 14px' }}>
+              ⚡ GenLayer Bradbury Testnet
+            </div>
 
             {userAddress ? (
               <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
