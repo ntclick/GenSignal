@@ -503,10 +503,22 @@ def _resolve_contract_address_from_rpc_sync(tx_hash: str, max_attempts: int = 30
             except Exception as rpc_err:
                 pass
 
-        # ── 3. Fallback: Try Explorer API ─────────────────────────────────────
+        # ── 3. Fallback: Try OAS 3.0 & REST Explorer APIs ──────────────────────
         try:
+            # OAS 3.0 Transaction Receipt Status API
+            oas_url = f"https://explorer-api.testnet-chain.genlayer.com/api?module=transaction&action=gettxreceiptstatus&txhash={tx_clean}"
+            oas_resp = httpx.get(oas_url, timeout=6.0)
+            if oas_resp.status_code == 200:
+                oas_data = oas_resp.json()
+                if oas_data.get("status") == "1" and isinstance(oas_data.get("result"), dict):
+                    rec = oas_data["result"].get("contractAddress") or oas_data["result"].get("recipient")
+                    if _is_valid_contract_address(rec):
+                        print(f"  ✅ [OAS 3.0 Resolve #{attempt}] Contract address: {rec}")
+                        return str(rec)
+
+            # REST v2 Explorer API
             ex_url = f"https://explorer-api.testnet-chain.genlayer.com/api/v2/transactions/{tx_clean}"
-            ex_resp = httpx.get(ex_url, timeout=8.0)
+            ex_resp = httpx.get(ex_url, timeout=6.0)
             if ex_resp.status_code == 200:
                 data = ex_resp.json()
                 tx_data = data.get("data") or data

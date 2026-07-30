@@ -30,7 +30,7 @@ export const GENLAYER_RPC_URL  = 'https://rpc-bradbury.genlayer.com'
 export class TransactionStatusService {
   /**
    * Verifies if a transaction hash is officially indexed by GenLayer Explorer API.
-   * GET /api/v2/transactions/{txHash}
+   * Supports both OAS 3.0 /api?module=transaction&action=getstatus and REST /api/v2/transactions/{txHash}.
    */
   static async verifyTransactionIndexed(txHash) {
     if (!txHash || typeof txHash !== 'string' || !txHash.startsWith('0x') || txHash.length < 60) {
@@ -38,10 +38,29 @@ export class TransactionStatusService {
     }
 
     try {
+      // 1. Try OAS 3.0 Standard Explorer Transaction Status API
+      const statusRes = await fetch(`${EXPLORER_API_URL}/api?module=transaction&action=getstatus&txhash=${txHash}`, { cache: 'no-store' }).catch(() => null)
+      if (statusRes && statusRes.ok) {
+        const statusJson = await statusRes.json().catch(() => null)
+        if (statusJson && statusJson.status === '1' && statusJson.result) {
+          return { isIndexed: true, data: statusJson.result }
+        }
+      }
+
+      // 2. Try OAS 3.0 Transaction Receipt Status API
+      const receiptRes = await fetch(`${EXPLORER_API_URL}/api?module=transaction&action=gettxreceiptstatus&txhash=${txHash}`, { cache: 'no-store' }).catch(() => null)
+      if (receiptRes && receiptRes.ok) {
+        const receiptJson = await receiptRes.json().catch(() => null)
+        if (receiptJson && receiptJson.status === '1' && receiptJson.result) {
+          return { isIndexed: true, data: receiptJson.result }
+        }
+      }
+
+      // 3. Try REST API v2
       const res = await fetch(`${EXPLORER_API_URL}/api/v2/transactions/${txHash}`, { cache: 'no-store' }).catch(() => null)
       if (res && res.ok) {
         const data = await res.json().catch(() => null)
-        if (data && (data.hash || data.id || data.status)) {
+        if (data && (data.hash || data.id || data.status || data.result)) {
           return { isIndexed: true, data }
         }
       }
@@ -82,19 +101,48 @@ export class TransactionStatusService {
     const checkStatus = async () => {
       attempt++
       try {
-        // 1. Single Source of Truth: GenLayer Explorer API v2
-        const expRes = await fetch(`${EXPLORER_API_URL}/api/v2/transactions/${txHash}`, { cache: 'no-store' }).catch(() => null)
         let rawStatus = null
         let expData = null
 
-        if (expRes && expRes.ok) {
-          expData = await expRes.json().catch(() => null)
-          if (expData) {
-            rawStatus = expData.status || expData.result?.status
+        // 1. OAS 3.0 Transaction Receipt Status API
+        const oasRes = await fetch(`${EXPLORER_API_URL}/api?module=transaction&action=gettxreceiptstatus&txhash=${txHash}`, { cache: 'no-store' }).catch(() => null)
+        if (oasRes && oasRes.ok) {
+          const oasJson = await oasRes.json().catch(() => null)
+          if (oasJson && oasJson.status === '1' && oasJson.result) {
+            const recStatus = oasJson.result.status
+            if (recStatus === '1' || recStatus === 1) {
+              rawStatus = 'FINALIZED'
+            }
           }
         }
 
-        // 2. Node RPC gen_getTransactionStatus Fallback
+        // 2. OAS 3.0 Transaction Execution Status API
+        if (!rawStatus) {
+          const oasStatusRes = await fetch(`${EXPLORER_API_URL}/api?module=transaction&action=getstatus&txhash=${txHash}`, { cache: 'no-store' }).catch(() => null)
+          if (oasStatusRes && oasStatusRes.ok) {
+            const oasStatusJson = await oasStatusRes.json().catch(() => null)
+            if (oasStatusJson && oasStatusJson.status === '1' && oasStatusJson.result) {
+              if (oasStatusJson.result.isError === '0') {
+                rawStatus = 'FINALIZED'
+              } else if (oasStatusJson.result.isError === '1') {
+                rawStatus = 'CANCELED'
+              }
+            }
+          }
+        }
+
+        // 3. GenLayer Explorer API v2 REST Fallback
+        if (!rawStatus) {
+          const expRes = await fetch(`${EXPLORER_API_URL}/api/v2/transactions/${txHash}`, { cache: 'no-store' }).catch(() => null)
+          if (expRes && expRes.ok) {
+            expData = await expRes.json().catch(() => null)
+            if (expData) {
+              rawStatus = expData.status || expData.result?.status
+            }
+          }
+        }
+
+        // 4. Node RPC gen_getTransactionStatus Fallback
         if (!rawStatus) {
           const rpcPayload = {
             jsonrpc: '2.0',
