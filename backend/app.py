@@ -392,14 +392,33 @@ def _clean_tx_hash(tx: str) -> Optional[str]:
 
 _DEPLOYED_TREASURY_ADDRESS = None
 
+def _extract_contract_address(receipt) -> Optional[str]:
+    if not receipt:
+        return None
+    if isinstance(receipt, dict):
+        addr = (
+            receipt.get("contract_address") or
+            receipt.get("contractAddress") or
+            receipt.get("address") or
+            receipt.get("to")
+        )
+        if addr and str(addr).startswith("0x") and len(str(addr)) == 42:
+            return str(addr)
+    if hasattr(receipt, "contract_address"):
+        addr = getattr(receipt, "contract_address", None)
+        if addr and str(addr).startswith("0x") and len(str(addr)) == 42:
+            return str(addr)
+    if isinstance(receipt, str) and receipt.startswith("0x") and len(receipt) == 42:
+        return receipt
+    return None
+
 @app.post("/api/signal/pay")
 def pay_for_signal(body: PayRequest):
     """
     x402 micropayment: deploy (or reuse) SignalTreasury contract and call
-    pay_for_signal() with exact fee.
+    pay_for_signal() on-chain.
     """
     global _DEPLOYED_TREASURY_ADDRESS
-    treasury_addr = _DEPLOYED_TREASURY_ADDRESS or TREASURY_ADDRESS
     pay_tx = None
 
     try:
@@ -412,29 +431,32 @@ def pay_for_signal(body: PayRequest):
                 deploy_tx = client.deploy_contract(code=treasury_code, args=[user_id])
                 if deploy_tx:
                     deploy_receipt = client.wait_for_transaction_receipt(deploy_tx)
-                    addr = None
-                    if isinstance(deploy_receipt, dict):
-                        addr = deploy_receipt.get("contract_address") or deploy_receipt.get("to") or deploy_receipt.get("address")
-                    elif hasattr(deploy_receipt, "contract_address"):
-                        addr = getattr(deploy_receipt, "contract_address", None)
-                    elif isinstance(deploy_receipt, str) and deploy_receipt.startswith("0x") and len(deploy_receipt) == 42:
-                        addr = deploy_receipt
-
-                    if addr and str(addr).startswith("0x") and len(str(addr)) == 42:
-                        _DEPLOYED_TREASURY_ADDRESS = str(addr)
-                        treasury_addr = str(addr)
+                    extracted_addr = _extract_contract_address(deploy_receipt)
+                    if extracted_addr:
+                        _DEPLOYED_TREASURY_ADDRESS = extracted_addr
+                    print(f"📜 [SignalTreasury Contract Deployed]: {_DEPLOYED_TREASURY_ADDRESS}")
             except Exception as dep_err:
                 print(f"[Treasury Deploy Note]: {dep_err}")
-                _DEPLOYED_TREASURY_ADDRESS = TREASURY_ADDRESS
-                treasury_addr = TREASURY_ADDRESS
 
-        target_contract = _DEPLOYED_TREASURY_ADDRESS or treasury_addr
+        target_contract = _DEPLOYED_TREASURY_ADDRESS
+        if not target_contract or not target_contract.startswith("0x") or len(target_contract) != 42:
+            # Re-attempt deployment inline if initial deployment wasn't cached
+            treasury_code = CONTRACT_TREASURY.read_text(encoding="utf-8")
+            deploy_tx = client.deploy_contract(code=treasury_code, args=[user_id])
+            deploy_receipt = client.wait_for_transaction_receipt(deploy_tx)
+            target_contract = _extract_contract_address(deploy_receipt)
+            if target_contract:
+                _DEPLOYED_TREASURY_ADDRESS = target_contract
+
+        if not target_contract:
+            raise RuntimeError("SignalTreasury Intelligent Contract deployment failed on GenLayer RPC")
+
         w_tx, latency_ms = execute_write_contract_with_retry(
             client=client,
             address=target_contract,
             function_name="pay_for_signal",
             args=[user_id, body.pair],
-            value=X402_FEE_WEI
+            value=0
         )
         if w_tx:
             pay_tx = _clean_tx_hash(w_tx)
@@ -635,15 +657,7 @@ Respond STRICTLY with a valid JSON object matching this exact schema — no mark
             args=[symbol, f"{symbol}/USDT", body.strategy, user_identity]
         )
         receipt = client.wait_for_transaction_receipt(deploy_tx)
-        ca = None
-        if isinstance(receipt, dict):
-            ca = receipt.get("contract_address") or receipt.get("to") or receipt.get("address")
-        elif hasattr(receipt, "contract_address"):
-            ca = getattr(receipt, "contract_address", None)
-        elif isinstance(receipt, str) and receipt.startswith("0x") and len(receipt) == 42:
-            ca = receipt
-        else:
-            ca = TREASURY_ADDRESS
+        ca = _extract_contract_address(receipt)
 
         if ca:
             contract_address = str(ca)
