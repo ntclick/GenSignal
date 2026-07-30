@@ -29,8 +29,8 @@ export const GENLAYER_RPC_URL  = 'https://rpc-bradbury.genlayer.com'
 
 export class TransactionStatusService {
   /**
-   * Verifies if a transaction hash is officially indexed by GenLayer Explorer API.
-   * Supports both OAS 3.0 /api?module=transaction&action=getstatus and REST /api/v2/transactions/{txHash}.
+   * Verifies if a transaction hash is officially indexed by GenLayer Node RPC / Explorer.
+   * Queries JSON-RPC eth_getTransactionReceipt first to avoid browser SSL cipher mismatch errors.
    */
   static async verifyTransactionIndexed(txHash) {
     if (!txHash || typeof txHash !== 'string' || !txHash.startsWith('0x') || txHash.length < 60) {
@@ -38,30 +38,31 @@ export class TransactionStatusService {
     }
 
     try {
-      // 1. Try OAS 3.0 Standard Explorer Transaction Status API
+      // 1. Primary Check: Official GenLayer Bradbury Node RPC (Valid Public SSL & CORS Enabled)
+      const rpcRes = await fetch(GENLAYER_RPC_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          jsonrpc: '2.0',
+          id: 1,
+          method: 'eth_getTransactionReceipt',
+          params: [txHash]
+        })
+      }).catch(() => null)
+
+      if (rpcRes && rpcRes.ok) {
+        const rpcJson = await rpcRes.json().catch(() => null)
+        if (rpcJson && rpcJson.result && (rpcJson.result.status === '0x1' || rpcJson.result.blockNumber)) {
+          return { isIndexed: true, data: rpcJson.result }
+        }
+      }
+
+      // 2. OAS 3.0 Explorer Status Fallback
       const statusRes = await fetch(`${EXPLORER_API_URL}/api?module=transaction&action=getstatus&txhash=${txHash}`, { cache: 'no-store' }).catch(() => null)
       if (statusRes && statusRes.ok) {
         const statusJson = await statusRes.json().catch(() => null)
         if (statusJson && statusJson.status === '1' && statusJson.result) {
           return { isIndexed: true, data: statusJson.result }
-        }
-      }
-
-      // 2. Try OAS 3.0 Transaction Receipt Status API
-      const receiptRes = await fetch(`${EXPLORER_API_URL}/api?module=transaction&action=gettxreceiptstatus&txhash=${txHash}`, { cache: 'no-store' }).catch(() => null)
-      if (receiptRes && receiptRes.ok) {
-        const receiptJson = await receiptRes.json().catch(() => null)
-        if (receiptJson && receiptJson.status === '1' && receiptJson.result) {
-          return { isIndexed: true, data: receiptJson.result }
-        }
-      }
-
-      // 3. Try REST API v2
-      const res = await fetch(`${EXPLORER_API_URL}/api/v2/transactions/${txHash}`, { cache: 'no-store' }).catch(() => null)
-      if (res && res.ok) {
-        const data = await res.json().catch(() => null)
-        if (data && (data.hash || data.id || data.status || data.result)) {
-          return { isIndexed: true, data }
         }
       }
     } catch (e) {}
@@ -70,7 +71,7 @@ export class TransactionStatusService {
   }
 
   /**
-   * Polls official GenLayer Explorer API and RPC with exponential backoff until indexed and finalized.
+   * Polls official GenLayer RPC and Explorer with exponential backoff until indexed and finalized.
    * @param {string} txHash 
    * @param {function} onStatusUpdate Callback fired on every status change or polling tick.
    * @param {object} options Config options
@@ -104,14 +105,46 @@ export class TransactionStatusService {
         let rawStatus = null
         let expData = null
 
-        // 1. OAS 3.0 Transaction Receipt Status API
-        const oasRes = await fetch(`${EXPLORER_API_URL}/api?module=transaction&action=gettxreceiptstatus&txhash=${txHash}`, { cache: 'no-store' }).catch(() => null)
-        if (oasRes && oasRes.ok) {
-          const oasJson = await oasRes.json().catch(() => null)
-          if (oasJson && oasJson.status === '1' && oasJson.result) {
-            const recStatus = oasJson.result.status
-            if (recStatus === '1' || recStatus === 1) {
+        // 1. Primary Check: Official GenLayer Bradbury Node RPC (eth_getTransactionReceipt)
+        const rpcPayload = {
+          jsonrpc: '2.0',
+          id: attempt,
+          method: 'eth_getTransactionReceipt',
+          params: [txHash]
+        }
+
+        const rpcRes = await fetch(rpcUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(rpcPayload)
+        }).catch(() => null)
+
+        if (rpcRes && rpcRes.ok) {
+          const rpcJson = await rpcRes.json().catch(() => null)
+          if (rpcJson && rpcJson.result) {
+            if (rpcJson.result.status === '0x1' || rpcJson.result.blockNumber) {
               rawStatus = 'FINALIZED'
+              expData = {
+                gas_used: `${(parseInt(rpcJson.result.gasUsed, 16) || 21000).toLocaleString()} GEN`,
+                status: 'FINALIZED',
+                consensus: 'GenVM Optimistic Democracy (Multi-Validator)'
+              }
+            } else if (rpcJson.result.status === '0x0') {
+              rawStatus = 'CANCELED'
+            }
+          }
+        }
+
+        // 2. OAS 3.0 Explorer Status Fallback
+        if (!rawStatus) {
+          const oasRes = await fetch(`${EXPLORER_API_URL}/api?module=transaction&action=gettxreceiptstatus&txhash=${txHash}`, { cache: 'no-store' }).catch(() => null)
+          if (oasRes && oasRes.ok) {
+            const oasJson = await oasRes.json().catch(() => null)
+            if (oasJson && oasJson.status === '1' && oasJson.result) {
+              const recStatus = oasJson.result.status
+              if (recStatus === '1' || recStatus === 1) {
+                rawStatus = 'FINALIZED'
+              }
             }
           }
         }
