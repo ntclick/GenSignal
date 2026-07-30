@@ -13,7 +13,7 @@ export const SignalResultTerminal = ({
   selectedTimeframe = '4h',
   onClose,
   onExecuteAnother,
-  explorerUrl = 'https://explorer.testnet-chain.genlayer.com'
+  explorerUrl = 'https://zksync-os-testnet-genlayer.explorer.zksync.dev'
 }) => {
   const [showReasoning, setShowReasoning] = useState(false)
   const [copied, setCopied]               = useState(false)
