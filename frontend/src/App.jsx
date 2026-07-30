@@ -1348,6 +1348,44 @@ function GenSignalAppContent() {
           </main>
         </div>
       )}
+      {/* ── API Execution Failure / Retry Popup Modal ───────────────────── */}
+      {error && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.88)', backdropFilter: 'blur(16px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 3000, padding: 20 }}>
+          <div className="card" style={{ maxWidth: 480, width: '100%', borderColor: '#f43f5e', boxShadow: '0 0 50px rgba(244,63,94,0.3)', textAlign: 'center', padding: 32 }}>
+            <div style={{ width: 60, height: 60, borderRadius: '50%', background: 'rgba(244,63,94,0.15)', border: '2px solid #f43f5e', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 20px', color: '#f43f5e' }}>
+              <AlertTriangle size={32} />
+            </div>
+
+            <h3 style={{ fontFamily: 'var(--font-display)', fontSize: 20, color: '#fff', marginBottom: 8 }}>
+              Backend Connection Timeout
+            </h3>
+            <p style={{ fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.6, marginBottom: 20 }}>
+              {error}<br />
+              <span style={{ fontSize: 11, color: 'var(--accent-cyan)', display: 'block', marginTop: 8 }}>
+                (Render Free backend service may still be waking up. Click Retry below to re-probe connection and resume execution.)
+              </span>
+            </p>
+
+            <div style={{ display: 'flex', gap: 12, justifyContent: 'center' }}>
+              <button className="btn btn-ghost" onClick={() => setError('')}>
+                Close
+              </button>
+              <button
+                className="btn btn-cyan"
+                onClick={async () => {
+                  setError('')
+                  setLoading(true)
+                  await ensureBackendAlive()
+                  confirmAndExecute()
+                }}
+              >
+                <RefreshCw size={15} /> Retry Request Now
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* ── API Server Settings Modal ────────────────────────────────────── */}
       {showApiModal && (
         <div className="modal-overlay" onClick={() => setShowApiModal(false)}>
