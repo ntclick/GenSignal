@@ -152,10 +152,20 @@ async def startup_warmup():
         t0 = time.time()
         res = await _SHARED_HTTP_CLIENT.get("https://explorer-api.testnet-chain.genlayer.com/docs")
         t1 = time.time()
-        _STARTUP_METRICS["explorer_init_ms"] = round((t1 - t0) * 1000, 2)
-        print(f"✅ [Startup] GenLayer Explorer API probe success ({_STARTUP_METRICS['explorer_init_ms']}ms)")
-    except Exception as e:
-        print(f"⚠️ [Startup Warning] Explorer API probe error: {e}")
+    # 4. Pre-deploy / Warm up SignalTreasury Contract ONCE on Startup
+    global _DEPLOYED_TREASURY_ADDRESS
+    try:
+        if not _DEPLOYED_TREASURY_ADDRESS and CONTRACT_TREASURY.exists():
+            client = get_singleton_client("bradbury")
+            user_id = _to_checksum(str(client.local_account.address))
+            treasury_code = CONTRACT_TREASURY.read_text(encoding="utf-8")
+            deploy_tx = client.deploy_contract(code=treasury_code, args=[user_id])
+            if deploy_tx:
+                deploy_receipt = client.wait_for_transaction_receipt(deploy_tx)
+                _DEPLOYED_TREASURY_ADDRESS = _extract_contract_address(deploy_receipt, deploy_tx)
+            print(f"📜 [Startup Treasury Contract Initialized]: {_DEPLOYED_TREASURY_ADDRESS}")
+    except Exception as te:
+        print(f"⚠️ [Startup Treasury Contract Note]: {te}")
 
     _IS_BACKEND_READY = True
     print(f"🚀 [Startup Complete] Total startup time: {round((time.time() - t_start)*1000, 2)}ms")
@@ -228,21 +238,27 @@ def wallet_status(network: Optional[str] = "bradbury"):
     except Exception as e:
         raise HTTPException(status_code=503, detail=f"Wallet status error: {e}")
 
-@app.get("/explorer-status")
-@app.get("/api/explorer-status")
-async def explorer_status():
+@app.get("/api/admin/address")
+def get_admin_address(network: Optional[str] = "bradbury"):
+    """Returns the testnet wallet address derived from GENLAYER_PRIVATE_KEY in .env"""
+    if not _IS_BACKEND_READY:
+        raise HTTPException(status_code=503, detail="Backend warming up")
     try:
-        t0 = time.time()
-        client_http = _SHARED_HTTP_CLIENT or httpx.AsyncClient(timeout=5.0)
-        res = await client_http.get("https://explorer-api.testnet-chain.genlayer.com/docs")
-        t1 = time.time()
+        client = get_singleton_client(network)
+        addr = str(client.local_account.address)
+        try:
+            balance_wei = client.get_balance(addr)
+            balance_gen = balance_wei / 10**18
+        except Exception:
+            balance_gen = 0.0
         return {
-            "status": "online" if res.status_code == 200 else "degraded",
-            "explorer_api_url": "https://explorer-api.testnet-chain.genlayer.com",
-            "probe_latency_ms": round((t1 - t0) * 1000, 2)
+            "address": addr,
+            "network": network,
+            "currency": NATIVE_TOKEN_SYMBOL,
+            "balance_gen": f"{balance_gen:.4f}"
         }
     except Exception as e:
-        raise HTTPException(status_code=503, detail=f"Explorer API offline: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to fetch admin address: {e}")
 
 # ── EXPONENTIAL RETRY FOR TRANSIENT RPC WRITE_CONTRACT CALLS ────────────────
 def execute_write_contract_with_retry(client, address, function_name, args, value=0, max_retries=3):
@@ -392,13 +408,14 @@ def _clean_tx_hash(tx: str) -> Optional[str]:
 
 _DEPLOYED_TREASURY_ADDRESS = None
 
-def _extract_contract_address(receipt) -> Optional[str]:
-    if not receipt:
+def _extract_contract_address(receipt, fallback_tx: str = "") -> Optional[str]:
+    if not receipt and not fallback_tx:
         return None
     if isinstance(receipt, dict):
         addr = (
             receipt.get("contract_address") or
             receipt.get("contractAddress") or
+            receipt.get("recipient") or
             receipt.get("address") or
             receipt.get("to")
         )
@@ -410,6 +427,8 @@ def _extract_contract_address(receipt) -> Optional[str]:
             return str(addr)
     if isinstance(receipt, str) and receipt.startswith("0x") and len(receipt) == 42:
         return receipt
+    if fallback_tx and isinstance(fallback_tx, str) and fallback_tx.startswith("0x") and len(fallback_tx) == 42:
+        return fallback_tx
     return None
 
 @app.post("/api/signal/pay")
