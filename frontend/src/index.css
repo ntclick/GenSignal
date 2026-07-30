@@ -81,7 +81,7 @@ body::after {
 
 .container { max-width: 1280px; margin: 0 auto; padding: 0 24px 80px; }
 
-/* ─── Enterprise SaaS Header ───────────────── */
+/* ─── Enterprise SaaS Header with Official Logo ───────────────── */
 .header {
   position: sticky;
   top: 0;
@@ -89,7 +89,7 @@ body::after {
   height: 68px;
   background: rgba(9, 9, 11, 0.85);
   backdrop-filter: blur(20px);
-  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
 }
 .header-inner {
   display: flex;
@@ -104,32 +104,17 @@ body::after {
 .header-left {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 24px;
   cursor: pointer;
 }
-.header-logo-icon {
-  width: 28px; height: 28px;
-  background: linear-gradient(135deg, var(--color-primary), var(--color-secondary));
-  border-radius: 8px;
-  display: flex; align-items: center; justify-content: center;
-  color: #fff;
-}
-.header-logo-title {
-  font-family: var(--font-display);
-  font-size: 16px;
-  font-weight: 700;
-  color: #fff;
-  letter-spacing: -0.02em;
-}
-.header-version-badge {
-  font-size: 10px;
-  font-family: var(--font-mono);
-  color: var(--text-muted);
-  background: rgba(255, 255, 255, 0.04);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  padding: 2px 7px;
-  border-radius: 6px;
-  margin-left: 2px;
+
+.header-logo-img {
+  height: 36px;
+  width: auto;
+  object-fit: contain;
+  display: block;
+  filter: none !important;
+  box-shadow: none !important;
 }
 
 /* Center Text Navigation */

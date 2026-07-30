@@ -451,13 +451,13 @@ export default function App() {
       {/* ── Enterprise SaaS Header Navigation ──────────────────────────────── */}
       <header className="header">
         <div className="header-inner">
-          {/* Left Section */}
+          {/* Left Section with Official GenSignal Logo */}
           <div className="header-left" onClick={() => setActiveTab('home')}>
-            <div className="header-logo-icon">
-              <Cpu size={16} color="#fff" />
-            </div>
-            <span className="header-logo-title">GenSignal</span>
-            <span className="header-version-badge">GenVM v0.7</span>
+            <img
+              src="/gensignal-logo.png"
+              alt="GenSignal AI Trading Oracle"
+              className="header-logo-img"
+            />
           </div>
 
           {/* Center Text Navigation */}
