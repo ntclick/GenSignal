@@ -396,13 +396,23 @@ On-Chain Proof: ${txHash ? `${explorerUrl}/tx/${txHash}` : 'GenLayer Bradbury Te
               )}
 
               <div style={{ display: 'flex', justifyContent: 'space-between', paddingTop: 6, borderTop: '1px solid rgba(255,255,255,0.06)' }}>
-                <span style={{ color: 'var(--text-muted)' }}>Gas Used / Limit:</span>
-                <span style={{ color: '#fff', fontWeight: 700 }}>{liveStatus?.gasUsed || '21,000 GEN'}</span>
+                <span style={{ color: 'var(--text-muted)' }}>Network & Chain ID:</span>
+                <span style={{ color: '#fff', fontWeight: 700 }}>GenLayer Bradbury Testnet (Chain ID 4221)</span>
               </div>
 
               <div style={{ display: 'flex', justifyContent: 'space-between', paddingTop: 4 }}>
                 <span style={{ color: 'var(--text-muted)' }}>Consensus Engine:</span>
-                <span style={{ color: '#a855f7', fontWeight: 700 }}>{liveStatus?.consensusInfo || 'GenVM Optimistic Democracy'}</span>
+                <span style={{ color: '#a855f7', fontWeight: 700 }}>{liveStatus?.consensusInfo || 'GenVM Optimistic Democracy (Multi-Validator)'}</span>
+              </div>
+
+              <div style={{ display: 'flex', justifyContent: 'space-between', paddingTop: 4 }}>
+                <span style={{ color: 'var(--text-muted)' }}>Validator Equivalence:</span>
+                <span style={{ color: '#10b981', fontWeight: 700 }}>Verdict Confluence & ±10% Confidence Margin</span>
+              </div>
+
+              <div style={{ display: 'flex', justifyContent: 'space-between', paddingTop: 4 }}>
+                <span style={{ color: 'var(--text-muted)' }}>Gas Used / Limit:</span>
+                <span style={{ color: '#fff', fontWeight: 700 }}>{liveStatus?.gasUsed || '21,000 GEN'}</span>
               </div>
             </div>
           </div>
