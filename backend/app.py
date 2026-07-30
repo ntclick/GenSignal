@@ -157,7 +157,7 @@ async def startup_warmup():
     except Exception as e:
         print(f"⚠️ [Startup Warning] Explorer API probe error: {e}")
 
-    # 4. Pre-deploy / Warm up SignalTreasury Contract ONCE on Startup
+    # 4. Pre-deploy SignalTreasury Contract ONCE on Startup (fire & forget - address resolved async)
     global _DEPLOYED_TREASURY_ADDRESS
     try:
         if not _DEPLOYED_TREASURY_ADDRESS and CONTRACT_TREASURY.exists():
@@ -166,8 +166,15 @@ async def startup_warmup():
             treasury_code = CONTRACT_TREASURY.read_text(encoding="utf-8")
             deploy_tx = client.deploy_contract(code=treasury_code, args=[user_id])
             if deploy_tx:
-                _DEPLOYED_TREASURY_ADDRESS = str(deploy_tx)
-            print(f"📜 [Startup Treasury Contract Initialized]: {_DEPLOYED_TREASURY_ADDRESS}")
+                deploy_tx_str = str(deploy_tx).strip()
+                print(f"📜 [Startup] SignalTreasury deploy tx submitted: {deploy_tx_str}")
+                # Resolve actual 42-char contract address from Explorer API (wait up to 60s)
+                resolved_addr = _resolve_contract_address_from_explorer_sync(deploy_tx_str, max_attempts=20, delay=3)
+                if resolved_addr:
+                    _DEPLOYED_TREASURY_ADDRESS = resolved_addr
+                    print(f"✅ [Startup] SignalTreasury contract address resolved: {_DEPLOYED_TREASURY_ADDRESS}")
+                else:
+                    print(f"⚠️ [Startup] Could not resolve contract address from tx {deploy_tx_str} - will retry on first request")
     except Exception as te:
         print(f"⚠️ [Startup Treasury Contract Note]: {te}")
 
@@ -435,6 +442,47 @@ def _extract_contract_address(receipt, fallback_tx: str = "") -> Optional[str]:
         return fallback_tx
     return None
 
+def _is_valid_contract_address(addr: str) -> bool:
+    """Returns True only if addr is a valid 42-character 0x Ethereum address."""
+    if not addr:
+        return False
+    s = str(addr).strip()
+    return s.startswith("0x") and len(s) == 42
+
+def _resolve_contract_address_from_explorer_sync(tx_hash: str, max_attempts: int = 12, delay: int = 3) -> Optional[str]:
+    """
+    Query the GenLayer Explorer API to resolve the actual contract address
+    (recipient field) from a deployment transaction hash.
+    Blocks synchronously - only call from startup or non-async contexts.
+    Returns 42-char address string, or None if not found within max_attempts.
+    """
+    import time as _time
+    explorer_url = f"https://explorer-api.testnet-chain.genlayer.com/api/v2/transactions/{tx_hash}"
+    for attempt in range(1, max_attempts + 1):
+        try:
+            resp = httpx.get(explorer_url, timeout=10.0)
+            if resp.status_code == 200:
+                data = resp.json()
+                # Explorer returns {data: {recipient: "0x...", ...}}
+                tx_data = data.get("data") or data
+                recipient = (
+                    tx_data.get("recipient") or
+                    tx_data.get("contract_address") or
+                    tx_data.get("to") or
+                    tx_data.get("contractAddress")
+                )
+                if _is_valid_contract_address(recipient):
+                    return str(recipient)
+                print(f"  [Explorer Resolve Attempt {attempt}/{max_attempts}] recipient not yet valid: {recipient}")
+            else:
+                print(f"  [Explorer Resolve Attempt {attempt}/{max_attempts}] HTTP {resp.status_code}")
+        except Exception as e:
+            print(f"  [Explorer Resolve Attempt {attempt}/{max_attempts}] Error: {e}")
+        if attempt < max_attempts:
+            _time.sleep(delay)
+    return None
+
+
 @app.post("/api/signal/pay")
 def pay_for_signal(body: PayRequest):
     """
@@ -448,17 +496,25 @@ def pay_for_signal(body: PayRequest):
         client = get_singleton_client(body.network or "bradbury")
         user_id = _to_checksum(body.user_identity or TREASURY_ADDRESS)
 
-        if not _DEPLOYED_TREASURY_ADDRESS:
+        if not _DEPLOYED_TREASURY_ADDRESS or not _is_valid_contract_address(_DEPLOYED_TREASURY_ADDRESS):
             try:
                 treasury_code = CONTRACT_TREASURY.read_text(encoding="utf-8")
                 deploy_tx = client.deploy_contract(code=treasury_code, args=[user_id])
                 if deploy_tx:
-                    _DEPLOYED_TREASURY_ADDRESS = str(deploy_tx)
-                    print(f"📜 [SignalTreasury Contract Deployed]: {_DEPLOYED_TREASURY_ADDRESS}")
+                    deploy_tx_str = str(deploy_tx).strip()
+                    print(f"📜 [Pay] SignalTreasury deploy tx: {deploy_tx_str}")
+                    # Resolve actual contract address - wait up to 60s
+                    resolved = _resolve_contract_address_from_explorer_sync(deploy_tx_str, max_attempts=20, delay=3)
+                    if resolved:
+                        _DEPLOYED_TREASURY_ADDRESS = resolved
+                        print(f"✅ [Pay] SignalTreasury contract address: {_DEPLOYED_TREASURY_ADDRESS}")
             except Exception as dep_err:
                 print(f"[Treasury Deploy Note]: {dep_err}")
 
-        target_contract = _DEPLOYED_TREASURY_ADDRESS or TREASURY_ADDRESS
+        if not _is_valid_contract_address(_DEPLOYED_TREASURY_ADDRESS):
+            raise RuntimeError(f"SignalTreasury contract address could not be resolved (got: {_DEPLOYED_TREASURY_ADDRESS!r}). Transaction still pending on GenLayer testnet.")
+
+        target_contract = _DEPLOYED_TREASURY_ADDRESS
         w_tx, latency_ms = execute_write_contract_with_retry(
             client=client,
             address=target_contract,
