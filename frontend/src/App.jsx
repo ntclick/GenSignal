@@ -21,7 +21,7 @@ const BRADBURY_NETWORK_PARAMS = {
     symbol: 'GEN',
     decimals: 18
   },
-  rpcUrls: ['https://bradbury.genlayer.fastnode.io'],
+  rpcUrls: ['https://rpc-bradbury.genlayer.com', 'https://bradbury.genlayer.fastnode.io'],
   blockExplorerUrls: ['https://explorer.testnet-chain.genlayer.com']
 }
 
@@ -1494,7 +1494,12 @@ function GenSignalAppContent() {
 export default function App() {
   const [customBackendUrl] = useState(() => {
     const stored = localStorage.getItem('gensignal_custom_backend')
-    return stored ? stored.trim() : (import.meta.env.VITE_BACKEND_URL || 'https://gensignal.onrender.com')
+    if (stored) return stored.trim()
+    if (import.meta.env.VITE_BACKEND_URL) return import.meta.env.VITE_BACKEND_URL
+    if (typeof window !== 'undefined' && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')) {
+      return 'http://localhost:8001'
+    }
+    return 'https://gensignal.onrender.com'
   })
 
   return (
