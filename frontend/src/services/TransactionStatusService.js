@@ -23,8 +23,8 @@ export const GENLAYER_STATUSES = {
   LEADER_TIMEOUT: 'LEADER_TIMEOUT'
 }
 
-export const EXPLORER_BASE_URL = 'https://explorer.genlayer.fastnode.io'
-export const EXPLORER_API_URL  = 'https://explorer.genlayer.fastnode.io'
+export const EXPLORER_BASE_URL = 'https://explorer.testnet-chain.genlayer.com'
+export const EXPLORER_API_URL  = 'https://explorer.testnet-chain.genlayer.com'
 export const GENLAYER_RPC_URL  = 'https://rpc-bradbury.genlayer.com'
 
 export class TransactionStatusService {
