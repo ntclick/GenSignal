@@ -357,7 +357,7 @@ function GenSignalAppContent() {
       }
 
       // Step 2: x402 Payment
-      setExecutionStep('STEP 01: Signing x402 Micropayment (0.05 GEN)…')
+      setExecutionStep(`STEP 01: Executing x402 Micropayment (${stratObj.fee})…`)
       addLog(`💸 [Step 2/3] Sending x402 payment (${stratObj.fee}) to SignalTreasury…`, 'hi')
       
       await safeEnsureBackendAlive()
