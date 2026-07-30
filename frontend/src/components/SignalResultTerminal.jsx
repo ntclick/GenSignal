@@ -367,23 +367,9 @@ On-Chain Proof: ${txHash ? `${explorerUrl}/tx/${txHash}` : 'GenLayer Bradbury Te
             </div>
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: 10, fontSize: 11, fontFamily: 'var(--font-mono)' }}>
-              {txHash && (
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
-                  <span style={{ color: 'var(--text-muted)' }}>Oracle Consensus Tx:</span>
-                  <a
-                    href={`${EXPLORER_BASE_URL}/tx/${txHash}`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    style={{ color: '#3b82f6', textDecoration: 'none', fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: 4 }}
-                  >
-                    {txHash.slice(0, 14)}…{txHash.slice(-6)} <ExternalLink size={12} />
-                  </a>
-                </div>
-              )}
-
               {paymentTxHash && (
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
-                  <span style={{ color: 'var(--text-muted)' }}>x402 Micropayment Tx:</span>
+                  <span style={{ color: 'var(--text-muted)' }}>x402 Micropayment Tx (Your Wallet):</span>
                   <a
                     href={`${EXPLORER_BASE_URL}/tx/${paymentTxHash}`}
                     target="_blank"
@@ -391,6 +377,20 @@ On-Chain Proof: ${txHash ? `${explorerUrl}/tx/${txHash}` : 'GenLayer Bradbury Te
                     style={{ color: '#10b981', textDecoration: 'none', fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: 4 }}
                   >
                     {paymentTxHash.slice(0, 14)}…{paymentTxHash.slice(-6)} <ExternalLink size={12} />
+                  </a>
+                </div>
+              )}
+
+              {txHash && txHash !== paymentTxHash && (
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
+                  <span style={{ color: 'var(--text-muted)' }}>Oracle Consensus Tx (GenLayer Engine):</span>
+                  <a
+                    href={`${EXPLORER_BASE_URL}/tx/${txHash}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    style={{ color: '#3b82f6', textDecoration: 'none', fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: 4 }}
+                  >
+                    {txHash.slice(0, 14)}…{txHash.slice(-6)} <ExternalLink size={12} />
                   </a>
                 </div>
               )}
