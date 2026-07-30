@@ -94,8 +94,8 @@ Traditional crypto trading signals suffer from zero accountability: telegram cal
 
 ### 1. Clone Repository
 ```bash
-git clone https://github.com/quicklyreviews/genSignal.git
-cd genSignal
+git clone https://github.com/ntclick/GenSignal.git
+cd GenSignal
 ```
 
 ### 2. Backend Setup
