@@ -5,9 +5,9 @@ import {
   Wallet, Lock, Copy, Check, ExternalLink, LogOut, RefreshCw, Activity, Cpu, Sparkles, Loader2
 } from 'lucide-react'
 
-const BACKEND_URL = 'http://localhost:8001'
+const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || 'http://localhost:8001'
 const LOCAL_STORAGE_WALLET_KEY = 'gensignal_connected_wallet'
-const PRICE_REFRESH_INTERVAL_SEC = 30
+const PRICE_REFRESH_INTERVAL_SEC = 600
 const EXPLORER_URL = 'https://explorer.testnet-chain.genlayer.com'
 
 const NETWORKS = [

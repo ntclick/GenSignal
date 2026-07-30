@@ -80,7 +80,7 @@ app = FastAPI(
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
-    allow_credentials=True,
+    allow_credentials=False,  # False allows wildcard * for Vercel & localhost cross-origin requests
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -152,8 +152,19 @@ def _format_crypto_price(price: float) -> str:
     else:
         return f"${price:.10f}"
 
+import time
+
+_COIN_CACHE = []
+_COIN_CACHE_TIME = 0
+CACHE_TTL_SECONDS = 900  # 15 minutes in-memory cache
+
 @app.get("/api/coins")
 async def get_coins():
+    global _COIN_CACHE, _COIN_CACHE_TIME
+    now = time.time()
+    if _COIN_CACHE and (now - _COIN_CACHE_TIME < CACHE_TTL_SECONDS):
+        return _COIN_CACHE
+
     cg_ids = ",".join([c["cg_id"] for c in COINS_MAP])
     url = f"https://api.coingecko.com/api/v3/simple/price?ids={cg_ids}&vs_currencies=usd&include_24hr_change=true"
     headers = {}
@@ -181,6 +192,11 @@ async def get_coins():
                 results = _fallback_coins()
     except Exception:
         results = _fallback_coins()
+
+    if results:
+        _COIN_CACHE = results
+        _COIN_CACHE_TIME = now
+
     return results
 
 def _to_checksum(addr: str) -> str:
