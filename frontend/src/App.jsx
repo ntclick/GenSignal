@@ -68,6 +68,13 @@ const PRESET_COINS = [
   { sym: 'ARB', pair: 'ARB/USDT', name: 'Arbitrum', price: '$0.4800', change: '-2.06%' }
 ]
 
+const getSanitizedBackendUrl = (url) => {
+  if (!url || typeof url !== 'string') return 'http://localhost:8001'
+  const trimmed = url.trim().replace(/\/$/, '')
+  if (!trimmed || trimmed.includes('vercel.app')) return 'http://localhost:8001'
+  return trimmed
+}
+
 export default function App() {
   const [activeNetwork, setActiveNetwork]     = useState('bradbury')
   const [coins, setCoins]                     = useState(PRESET_COINS)
@@ -82,11 +89,14 @@ export default function App() {
   const [showResultModal, setShowResultModal] = useState(false)
   const [txHash, setTxHash]                   = useState('')
   const [error, setError]                     = useState('')
-  const [customBackendUrl, setCustomBackendUrl] = useState(() => localStorage.getItem('gensignal_custom_backend') || import.meta.env.VITE_BACKEND_URL || 'http://localhost:8001')
+  const [customBackendUrl, setCustomBackendUrl] = useState(() => {
+    const stored = localStorage.getItem('gensignal_custom_backend')
+    return getSanitizedBackendUrl(stored || import.meta.env.VITE_BACKEND_URL)
+  })
   const [showApiModal, setShowApiModal]       = useState(false)
   const [apiInput, setApiInput]               = useState(customBackendUrl)
 
-  const activeBackendUrl = customBackendUrl.replace(/\/$/, '')
+  const activeBackendUrl = getSanitizedBackendUrl(customBackendUrl)
 
   // Live price refresh countdown
   const [priceCountdown, setPriceCountdown]   = useState(PRICE_REFRESH_INTERVAL_SEC)
@@ -916,9 +926,19 @@ export default function App() {
               placeholder="http://localhost:8001"
               style={{
                 width: '100%', padding: '10px 14px', borderRadius: 10, background: '#0f172a',
-                border: '1px solid var(--accent-cyan)', color: '#fff', fontSize: 13, fontFamily: 'var(--font-mono)', marginBottom: 16
+                border: '1px solid var(--accent-cyan)', color: '#fff', fontSize: 13, fontFamily: 'var(--font-mono)', marginBottom: 10
               }}
             />
+            <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
+              <button
+                type="button"
+                className="btn btn-ghost"
+                style={{ fontSize: 11, padding: '4px 10px', borderColor: 'rgba(6,182,212,0.4)', color: 'var(--accent-cyan)' }}
+                onClick={() => setApiInput('http://localhost:8001')}
+              >
+                ⚡ Reset to Localhost (http://localhost:8001)
+              </button>
+            </div>
             <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
               <button className="btn btn-ghost" onClick={() => setShowApiModal(false)}>Cancel</button>
               <button
