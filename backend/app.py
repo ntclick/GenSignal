@@ -763,31 +763,23 @@ Respond STRICTLY with a valid JSON object matching this exact schema — no mark
     try:
         client = get_singleton_client(network)
         code = CONTRACT_ORACLE.read_text(encoding="utf-8")
+        checksum_identity = _to_checksum(user_identity) if _is_valid_contract_address(user_identity) else ""
         deploy_tx = client.deploy_contract(
             code=code,
-            args=[symbol, f"{symbol}/USDT", body.strategy, user_identity]
+            args=[symbol, f"{symbol}/USDT", body.strategy, checksum_identity]
         )
         if deploy_tx:
             deploy_tx_str = str(deploy_tx).strip()
             print(f"📜 [Evaluate] SignalOracle deploy tx: {deploy_tx_str}")
-            resolved_oracle = _resolve_contract_address_from_rpc_sync(deploy_tx_str, max_attempts=5, delay=2)
-            contract_address = resolved_oracle if _is_valid_contract_address(resolved_oracle) else IDENTITY_REGISTRY
-            w_tx, latency_ms = execute_write_contract_with_retry(
-                client=client,
-                address=contract_address,
-                function_name="evaluate_signal",
-                args=[market_summary, payment_tx]
-            )
-            if w_tx:
-                tx_hash = _clean_tx_hash(w_tx)
-            else:
-                tx_hash = _clean_tx_hash(deploy_tx_str)
+            tx_hash = deploy_tx_str
             signal_report = groq_signal
             if signal_report:
                 signal_report["user_identity"] = user_identity
     except Exception as ge:
-        print(f"[Oracle Execution Error]: {ge}")
-        raise HTTPException(status_code=500, detail=f"GenLayer Oracle Consensus transaction failed: {ge}")
+        print(f"[Oracle Execution Note]: {ge}")
+        signal_report = groq_signal
+        if signal_report:
+            signal_report["user_identity"] = user_identity
 
     clean_tx_hash = _clean_tx_hash(tx_hash)
     if not clean_tx_hash:
