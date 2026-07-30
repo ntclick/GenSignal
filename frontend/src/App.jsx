@@ -335,22 +335,40 @@ function GenSignalAppContent() {
     let userSig = null
     let lastError = null
 
-    // 1. Signature Step (User signs once)
+    // 1. Signature Step (User signs once via MetaMask)
     try {
       await safeEnsureBackendAlive()
       setExecutionStep('Step 1/3: Requesting Wallet Signature…')
-      if (userAddress && window.ethereum) {
+      
+      let currentAddress = userAddress
+      if (!currentAddress && window.ethereum) {
+        addLog(`👛 Prompting MetaMask wallet connection…`, 'hi')
+        try {
+          const accounts = await window.ethereum.request({ method: 'eth_requestAccounts' })
+          if (accounts && accounts[0]) {
+            currentAddress = accounts[0]
+            setUserAddress(currentAddress)
+            localStorage.setItem(LOCAL_STORAGE_WALLET_KEY, currentAddress)
+            addLog(`✔ Wallet Connected: ${currentAddress.slice(0, 6)}…${currentAddress.slice(-4)}`, 'hi')
+          }
+        } catch (connErr) {
+          addLog(`⚠️ MetaMask connection declined: ${connErr.message}`, 'warn')
+        }
+      }
+
+      const signingWallet = currentAddress || activeAddress
+      if (window.ethereum && currentAddress) {
         addLog(`✍️ [Step 1/3] Requesting MetaMask signature for x402 authorization…`, 'hi')
         const message = [
           `GenSignal x402 Micropayment`,
           `Network: ${netObj.name}`,
           `Asset: ${selectedCoin}/USDT`,
           `Fee: ${stratObj.fee}`,
-          `Wallet: ${userAddress}`
+          `Wallet: ${signingWallet}`
         ].join('\n')
         userSig = await window.ethereum.request({
           method: 'personal_sign',
-          params: [message, userAddress]
+          params: [message, signingWallet]
         })
         addLog(`✔ Signature verified!`, 'hi')
       } else {
