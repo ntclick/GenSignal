@@ -448,71 +448,80 @@ export default function App() {
         </div>
       )}
 
-      {/* ── Header ──────────────────────────────────────────────────────────── */}
-      <header className="header" style={{ background: 'rgba(7,10,18,0.92)', borderBottom: '1px solid var(--border-glass)' }}>
-        <div className="header-inner" style={{ padding: '14px 24px' }}>
-          <div className="logo" onClick={() => setActiveTab('home')} style={{ cursor: 'pointer' }}>
-            <div className="logo-icon">
-              <Cpu size={22} color="#fff" />
+      {/* ── Enterprise SaaS Header Navigation ──────────────────────────────── */}
+      <header className="header">
+        <div className="header-inner">
+          {/* Left Section */}
+          <div className="header-left" onClick={() => setActiveTab('home')}>
+            <div className="header-logo-icon">
+              <Cpu size={16} color="#fff" />
             </div>
-            <div>
-              <div className="logo-title" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                GenSignal <span style={{ fontSize: 10, background: 'rgba(6,182,212,0.15)', color: 'var(--accent-cyan)', padding: '2px 8px', borderRadius: 99, fontFamily: 'var(--font-mono)' }}>GenVM v0.7</span>
-              </div>
-              <div className="logo-sub">Decentralized AI Trading Oracle on GenLayer</div>
-            </div>
+            <span className="header-logo-title">GenSignal</span>
+            <span className="header-version-badge">GenVM v0.7</span>
           </div>
 
-          {/* Nav Tabs */}
-          <div className="nav-tabs">
+          {/* Center Text Navigation */}
+          <nav className="header-nav">
             <button
-              className={`nav-tab ${activeTab === 'home' ? 'active' : ''}`}
+              className={`header-nav-item ${activeTab === 'home' ? 'active' : ''}`}
               onClick={() => setActiveTab('home')}
             >
-              <Activity size={14} /> Overview
+              Overview
             </button>
             <button
-              className={`nav-tab ${activeTab === 'dapp' ? 'active' : ''}`}
+              className={`header-nav-item ${activeTab === 'dapp' ? 'active' : ''}`}
+              onClick={() => setActiveTab('dapp')}
+            >
+              AI Signals
+            </button>
+            <button
+              className="header-nav-item"
+              onClick={() => { setActiveTab('dapp'); setSidebarItem('txs'); }}
+            >
+              Analytics
+            </button>
+            <a
+              href="https://github.com/ntclick/GenSignal"
+              target="_blank" rel="noopener noreferrer"
+              className="header-nav-item"
+            >
+              Developers
+            </a>
+            <a
+              href="https://github.com/ntclick/GenSignal#readme"
+              target="_blank" rel="noopener noreferrer"
+              className="header-nav-item"
+            >
+              Documentation
+            </a>
+          </nav>
+
+          {/* Right Section */}
+          <div className="header-right">
+            {/* Compact Neutral Network Chip */}
+            <div className="network-chip">
+              <div className="dot-green" /> Bradbury Testnet
+            </div>
+
+            {/* Compact Wallet Chip */}
+            {userAddress ? (
+              <div className="wallet-chip" onClick={disconnectWallet} title="Click to disconnect wallet">
+                <div className="dot-green" />
+                {userAddress.slice(0, 6)}…{userAddress.slice(-4)}
+              </div>
+            ) : (
+              <div className="wallet-chip" onClick={connectWallet}>
+                <Wallet size={14} /> Connect
+              </div>
+            )}
+
+            {/* Primary CTA (ONLY colorful button in header) */}
+            <button
+              className="btn-launch-dapp"
               onClick={() => setActiveTab('dapp')}
             >
               <Zap size={14} /> Launch dApp
             </button>
-          </div>
-
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-            <button
-              className="btn btn-ghost"
-              onClick={() => { setApiInput(customBackendUrl); setShowApiModal(true); }}
-              style={{ padding: '6px 12px', fontSize: 12, display: 'flex', alignItems: 'center', gap: 6, borderColor: 'rgba(6,182,212,0.4)', color: 'var(--accent-cyan)' }}
-              title="Configure Backend API Server URL"
-            >
-              <Cpu size={13} /> API Server
-            </button>
-
-            <div className="badge-net" style={{ borderColor: 'rgba(6,182,212,0.4)', color: 'var(--accent-cyan)', background: 'rgba(6,182,212,0.1)', padding: '6px 14px' }}>
-              ⚡ GenLayer Bradbury Testnet
-            </div>
-
-            {userAddress ? (
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <div className="badge-net">
-                  <div className="dot-green" />
-                  {userAddress.slice(0, 6)}…{userAddress.slice(-4)}
-                </div>
-                <button
-                  className="btn btn-ghost"
-                  onClick={disconnectWallet}
-                  style={{ padding: '6px 10px', fontSize: 12 }}
-                  title="Disconnect & clear cached session"
-                >
-                  <LogOut size={13} />
-                </button>
-              </div>
-            ) : (
-              <button className="btn btn-cyan" style={{ padding: '8px 18px', fontSize: 13 }} onClick={connectWallet}>
-                <Wallet size={15} /> Connect Wallet
-              </button>
-            )}
           </div>
         </div>
       </header>
