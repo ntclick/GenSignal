@@ -130,6 +130,7 @@ export default function App() {
     const stored = localStorage.getItem('gensignal_custom_backend')
     return getSanitizedBackendUrl(stored || import.meta.env.VITE_BACKEND_URL)
   })
+  const [sidebarItem, setSidebarItem]         = useState('dashboard') // 'dashboard' | 'assets' | 'agents' | 'txs' | 'settings'
   const [openFaq, setOpenFaq]                 = useState(null)
   const [showApiModal, setShowApiModal]       = useState(false)
   const [apiInput, setApiInput]               = useState(customBackendUrl)
@@ -877,27 +878,81 @@ export default function App() {
         </div>
       )}
 
-      {/* ── DAPP PLATFORM VIEW ────────────────────────────────────────────── */}
+      {/* ── DAPP PLATFORM VIEW (SaaS Dashboard Aesthetic) ───────────────── */}
       {activeTab === 'dapp' && (
-        <div>
-          {/* Hero Header */}
-          <section className="hero" style={{ padding: '20px 24px 16px' }}>
-            <h1>AI-Validator Consensus Trading Oracle</h1>
-            <p>
-              Executing x402 Micropayments & GenVM Optimistic Democracy on <strong>GenLayer Bradbury Testnet</strong>.
-            </p>
-            {activeNetwork === 'bradbury' && (
-              <div style={{ marginTop: 8 }}>
-                <a
-                  href="https://testnet-faucet.genlayer.foundation"
-                  target="_blank" rel="noopener noreferrer"
-                  style={{ color: 'var(--accent-cyan)', fontSize: 13, display: 'inline-flex', alignItems: 'center', gap: 6, textDecoration: 'underline' }}
-                >
-                  Get Bradbury Testnet GEN Faucet Tokens <ExternalLink size={13} />
-                </a>
+        <div className="dapp-layout">
+          {/* Left Sidebar */}
+          <aside className="sidebar">
+            <div style={{ textTransform: 'uppercase', fontSize: 10, letterSpacing: 1.2, color: 'var(--text-muted)', fontWeight: 800, padding: '0 10px', marginBottom: 4, fontFamily: 'var(--font-mono)' }}>
+              Console Navigation
+            </div>
+            <button
+              className={`sidebar-item ${sidebarItem === 'dashboard' ? 'active' : ''}`}
+              onClick={() => setSidebarItem('dashboard')}
+            >
+              <Activity size={16} /> Dashboard
+            </button>
+            <button
+              className={`sidebar-item ${sidebarItem === 'assets' ? 'active' : ''}`}
+              onClick={() => setSidebarItem('assets')}
+            >
+              <TrendingUp size={16} /> Assets & Feeds ({coins.length})
+            </button>
+            <button
+              className={`sidebar-item ${sidebarItem === 'agents' ? 'active' : ''}`}
+              onClick={() => setSidebarItem('agents')}
+            >
+              <Cpu size={16} /> AI Strategy Agents (8)
+            </button>
+            <button
+              className={`sidebar-item ${sidebarItem === 'txs' ? 'active' : ''}`}
+              onClick={() => setSidebarItem('txs')}
+            >
+              <Layers size={16} /> On-Chain Activity Log
+            </button>
+            <button
+              className={`sidebar-item ${sidebarItem === 'settings' ? 'active' : ''}`}
+              onClick={() => { setApiInput(customBackendUrl); setShowApiModal(true); }}
+            >
+              <Lock size={16} /> API Server Settings
+            </button>
+
+            <div style={{ marginTop: 'auto', paddingTop: 16, borderTop: '1px solid var(--border-glass)' }}>
+              <div style={{ fontSize: 11, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)', padding: '0 10px' }}>
+                GenVM Node: Bradbury<br />
+                Fee: 0.05 GEN / Call
               </div>
-            )}
-          </section>
+            </div>
+          </aside>
+
+          {/* Main Dashboard Area */}
+          <main>
+            {/* Overview Stat Cards Bar */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 16, marginBottom: 24 }}>
+              <div className="stat-card" style={{ textAlign: 'left', padding: 18 }}>
+                <div style={{ fontSize: 11, color: 'var(--text-muted)', textTransform: 'uppercase', fontFamily: 'var(--font-mono)' }}>Portfolio Balance</div>
+                <div className="stat-value" style={{ color: '#fff', fontSize: 22, marginTop: 4 }}>{realGenBalance} GEN</div>
+                <div style={{ fontSize: 11, color: 'var(--color-success)' }}>Bradbury Testnet Wallet</div>
+              </div>
+
+              <div className="stat-card" style={{ textAlign: 'left', padding: 18 }}>
+                <div style={{ fontSize: 11, color: 'var(--text-muted)', textTransform: 'uppercase', fontFamily: 'var(--font-mono)' }}>Active AI Agents</div>
+                <div className="stat-value" style={{ color: 'var(--color-secondary)', fontSize: 22, marginTop: 4 }}>8 Engines</div>
+                <div style={{ fontSize: 11, color: 'var(--text-secondary)' }}>GenVM Multi-Validator</div>
+              </div>
+
+              <div className="stat-card" style={{ textAlign: 'left', padding: 18 }}>
+                <div style={{ fontSize: 11, color: 'var(--text-muted)', textTransform: 'uppercase', fontFamily: 'var(--font-mono)' }}>Micropayment Fee</div>
+                <div className="stat-value" style={{ color: 'var(--color-primary)', fontSize: 22, marginTop: 4 }}>0.05 GEN</div>
+                <div style={{ fontSize: 11, color: 'var(--color-success)' }}>x402 SignalTreasury</div>
+              </div>
+
+              <div className="stat-card" style={{ textAlign: 'left', padding: 18 }}>
+                <div style={{ fontSize: 11, color: 'var(--text-muted)', textTransform: 'uppercase', fontFamily: 'var(--font-mono)' }}>Consensus Latency</div>
+                <div className="stat-value" style={{ color: 'var(--color-warning)', fontSize: 22, marginTop: 4 }}>&lt; 20ms</div>
+                <div style={{ fontSize: 11, color: 'var(--text-secondary)' }}>In-Memory Cache Sync</div>
+              </div>
+            </div>
 
       {/* ── Wallet Balance Card ───────────────────────────────────────────────── */}
       <div className="card" style={{ borderColor: 'rgba(6,182,212,0.4)', background: 'rgba(15,23,42,0.85)' }}>
@@ -1341,6 +1396,7 @@ export default function App() {
           )}
         </div>
       )}
+          </main>
         </div>
       )}
       {/* ── API Server Settings Modal ────────────────────────────────────── */}
