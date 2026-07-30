@@ -400,15 +400,42 @@ def get_x402_quote(network: Optional[str] = "bradbury"):
         "network": network
     }
 
-def _clean_tx_hash(tx: str) -> Optional[str]:
+def _clean_tx_hash(tx) -> Optional[str]:
     if not tx:
         return None
+
+    # 1. If object has hex() method (HexBytes, bytes, bytearray)
+    if hasattr(tx, "hex") and callable(getattr(tx, "hex")):
+        try:
+            h = tx.hex()
+            if isinstance(h, str):
+                h_str = h if h.startswith("0x") else "0x" + h
+                hex_body = "".join([c for c in h_str[2:].lower() if c in "0123456789abcdef"])
+                if len(hex_body) == 64:
+                    return "0x" + hex_body
+        except Exception:
+            pass
+
+    # 2. If object is a dict with tx_hash, hash, or id
+    if isinstance(tx, dict):
+        tx_val = tx.get("tx_hash") or tx.get("hash") or tx.get("id") or tx.get("txHash")
+        if tx_val:
+            return _clean_tx_hash(tx_val)
+
+    # 3. String representation parsing
     tx_str = str(tx).strip().lower()
-    if not tx_str.startswith("0x"):
-        tx_str = "0x" + tx_str
-    hex_body = "".join([c for c in tx_str[2:] if c in "0123456789abcdef"])
+    if "0x" in tx_str:
+        idx = tx_str.index("0x")
+        raw_hex = tx_str[idx+2:]
+        hex_body = "".join([c for c in raw_hex if c in "0123456789abcdef"])[:64]
+        if len(hex_body) == 64:
+            return "0x" + hex_body
+
+    # 4. Clean raw 64-char hex string
+    hex_body = "".join([c for c in tx_str if c in "0123456789abcdef"])[:64]
     if len(hex_body) == 64:
         return "0x" + hex_body
+
     return None
 
 _DEPLOYED_TREASURY_ADDRESS = None
@@ -822,7 +849,7 @@ Respond STRICTLY with a valid JSON object matching this exact schema — no mark
         }
 
     return {
-        "tx_hash": tx_hash,
+        "tx_hash": clean_tx_hash,
         "payment_tx_hash": clean_payment_tx,
         "contract_address": contract_address,
         "network": network,
