@@ -14,6 +14,21 @@ const PRICE_REFRESH_INTERVAL_SEC = 600
 const EXPLORER_URL = 'https://explorer.testnet-chain.genlayer.com'
 const BRADBURY_CHAIN_ID_HEX = '0x107d' // 4221
 
+// Treasury: GEN fee collected here on-chain from user's wallet directly
+const TREASURY_ADDRESS = '0xafe6dd950dc2cf561e8daba1725e0e6840f70549'
+const FEE_WEI_BY_STRATEGY = {
+  ema:       '50000000000000000', // 0.05 GEN
+  rsi:       '50000000000000000',
+  bollinger: '50000000000000000',
+  supertrend:'50000000000000000',
+  macd:      '50000000000000000',
+  ichimoku:  '80000000000000000', // 0.08 GEN
+  structure: '80000000000000000',
+  smc:       '80000000000000000',
+  liquidity: '80000000000000000',
+  vwap:      '80000000000000000',
+}
+
 const BRADBURY_NETWORK_PARAMS = {
   chainId: BRADBURY_CHAIN_ID_HEX,
   chainName: 'GenLayer Bradbury Testnet',
@@ -393,27 +408,57 @@ function GenSignalAppContent() {
           await safeEnsureBackendAlive()
         }
 
-        // Step 2: x402 Payment
-        setExecutionStep(`STEP 01: Executing x402 Micropayment (${stratObj.fee})…`)
-        addLog(`💸 [Step 2/3] Sending x402 payment (${stratObj.fee}) to SignalTreasury…`, 'hi')
-        
-        const payRes = await fetch(`${activeBackendUrl}/api/signal/pay`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            user_identity: activeAddress,
-            pair: `${selectedCoin}/USDT`,
-            network: activeNetwork
-          })
-        })
+        // Step 2: x402 Payment — sent DIRECTLY from user's MetaMask wallet on GenLayer Bradbury
+        setExecutionStep(`STEP 01: Executing x402 Micropayment (${stratObj.fee}) from your wallet…`)
+        addLog(`💸 [Step 2/3] Sending x402 payment (${stratObj.fee}) from your wallet → SignalTreasury…`, 'hi')
 
-        if (!payRes.ok) {
-          const errText = await payRes.text().catch(() => '')
-          throw new Error(`Payment API failed [HTTP ${payRes.status} at ${activeBackendUrl}]: ${errText || 'Server warming up'}`)
+        const signingWalletAddr = currentAddress || activeAddress
+        const feeWei = FEE_WEI_BY_STRATEGY[selectedStrategy] || '50000000000000000'
+        let treasuryTxHash = null
+
+        if (window.ethereum && signingWalletAddr) {
+          // Ensure the user is on Bradbury network before sending
+          await ensureBradburyNetwork()
+
+          addLog(`🔑 MetaMask: Awaiting GEN transfer approval (${stratObj.fee} → Treasury)…`, 'hi')
+          try {
+            treasuryTxHash = await window.ethereum.request({
+              method: 'eth_sendTransaction',
+              params: [{
+                from: signingWalletAddr,
+                to: TREASURY_ADDRESS,
+                value: '0x' + BigInt(feeWei).toString(16),
+                gas: '0x5208', // 21000 standard transfer
+                chainId: BRADBURY_CHAIN_ID_HEX
+              }]
+            })
+            addLog(`✔ MetaMask payment confirmed! Tx: ${treasuryTxHash.slice(0, 18)}…`, 'hi')
+          } catch (sendErr) {
+            // User rejected MetaMask payment — fall back to backend-side payment
+            addLog(`⚠️ MetaMask payment declined: ${sendErr.message}. Using backend wallet as fallback…`, 'warn')
+          }
         }
 
-        const payData = await payRes.json()
-        const treasuryTxHash = payData.treasury_tx_hash
+        // Fallback: if MetaMask unavailable or rejected, call backend /api/signal/pay
+        if (!treasuryTxHash) {
+          addLog(`⚡ Fallback: Routing payment via backend testnet wallet…`, 'warn')
+          const payRes = await fetch(`${activeBackendUrl}/api/signal/pay`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              user_identity: signingWalletAddr || activeAddress,
+              pair: `${selectedCoin}/USDT`,
+              network: activeNetwork
+            })
+          })
+          if (!payRes.ok) {
+            const errText = await payRes.text().catch(() => '')
+            throw new Error(`Payment API failed [HTTP ${payRes.status}]: ${errText || 'Server warming up'}`)
+          }
+          const payData = await payRes.json()
+          treasuryTxHash = payData.treasury_tx_hash
+        }
+
         if (!treasuryTxHash || !treasuryTxHash.startsWith('0x') || treasuryTxHash.length < 60) {
           throw new Error('x402 Micropayment transaction submission failed on GenLayer RPC')
         }
