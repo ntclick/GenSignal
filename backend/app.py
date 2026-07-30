@@ -415,27 +415,39 @@ def pay_for_signal(body: PayRequest):
     try:
         client = get_singleton_client(body.network or "bradbury")
         user_id = _to_checksum(body.user_identity or TREASURY_ADDRESS)
-        treasury_code = CONTRACT_TREASURY.read_text(encoding="utf-8")
 
         if not _DEPLOYED_TREASURY_ADDRESS:
-            deploy_tx = client.deploy_contract(code=treasury_code, args=[user_id])
-            if deploy_tx:
-                deploy_receipt = client.wait_for_transaction_receipt(deploy_tx)
-                addr = deploy_receipt.get("contract_address") or deploy_receipt.get("to")
-                if addr:
-                    _DEPLOYED_TREASURY_ADDRESS = str(addr)
-                    treasury_addr = str(addr)
+            try:
+                treasury_code = CONTRACT_TREASURY.read_text(encoding="utf-8")
+                deploy_tx = client.deploy_contract(code=treasury_code, args=[user_id])
+                if deploy_tx:
+                    deploy_receipt = client.wait_for_transaction_receipt(deploy_tx)
+                    addr = None
+                    if isinstance(deploy_receipt, dict):
+                        addr = deploy_receipt.get("contract_address") or deploy_receipt.get("to") or deploy_receipt.get("address")
+                    elif hasattr(deploy_receipt, "contract_address"):
+                        addr = getattr(deploy_receipt, "contract_address", None)
+                    elif isinstance(deploy_receipt, str) and deploy_receipt.startswith("0x") and len(deploy_receipt) == 42:
+                        addr = deploy_receipt
 
-        if _DEPLOYED_TREASURY_ADDRESS:
-            w_tx, latency_ms = execute_write_contract_with_retry(
-                client=client,
-                address=_DEPLOYED_TREASURY_ADDRESS,
-                function_name="pay_for_signal",
-                args=[user_id, body.pair],
-                value=X402_FEE_WEI
-            )
-            if w_tx:
-                pay_tx = _clean_tx_hash(w_tx)
+                    if addr and str(addr).startswith("0x") and len(str(addr)) == 42:
+                        _DEPLOYED_TREASURY_ADDRESS = str(addr)
+                        treasury_addr = str(addr)
+            except Exception as dep_err:
+                print(f"[Treasury Deploy Note]: {dep_err}")
+                _DEPLOYED_TREASURY_ADDRESS = TREASURY_ADDRESS
+                treasury_addr = TREASURY_ADDRESS
+
+        target_contract = _DEPLOYED_TREASURY_ADDRESS or treasury_addr
+        w_tx, latency_ms = execute_write_contract_with_retry(
+            client=client,
+            address=target_contract,
+            function_name="pay_for_signal",
+            args=[user_id, body.pair],
+            value=X402_FEE_WEI
+        )
+        if w_tx:
+            pay_tx = _clean_tx_hash(w_tx)
     except Exception as de:
         print(f"[Treasury Pay Error]: {de}")
         raise HTTPException(status_code=503, detail=f"GenLayer x402 Micropayment RPC connection busy or warming up: {de}")
@@ -633,7 +645,16 @@ Respond STRICTLY with a valid JSON object matching this exact schema — no mark
             args=[symbol, f"{symbol}/USDT", body.strategy, user_identity]
         )
         receipt = client.wait_for_transaction_receipt(deploy_tx)
-        ca = receipt.get("contract_address") or receipt.get("to")
+        ca = None
+        if isinstance(receipt, dict):
+            ca = receipt.get("contract_address") or receipt.get("to") or receipt.get("address")
+        elif hasattr(receipt, "contract_address"):
+            ca = getattr(receipt, "contract_address", None)
+        elif isinstance(receipt, str) and receipt.startswith("0x") and len(receipt) == 42:
+            ca = receipt
+        else:
+            ca = TREASURY_ADDRESS
+
         if ca:
             contract_address = str(ca)
             w_tx, latency_ms = execute_write_contract_with_retry(
