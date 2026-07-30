@@ -88,6 +88,18 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+@app.options("/{full_path:path}")
+def options_handler(full_path: str):
+    from fastapi.responses import JSONResponse
+    return JSONResponse(
+        content={"status": "ok"},
+        headers={
+            "Access-Control-Allow-Origin": "*",
+            "Access-Control-Allow-Methods": "*",
+            "Access-Control-Allow-Headers": "*",
+        }
+    )
+
 class EvaluateRequest(BaseModel):
     symbol: str
     pair: str

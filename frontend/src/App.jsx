@@ -113,7 +113,7 @@ const getSanitizedBackendUrl = (url) => {
 }
 
 function GenSignalAppContent() {
-  const { isBackendReady } = useBackendWarmup()
+  const { isBackendReady, ensureBackendAlive } = useBackendWarmup()
   const [activeTab, setActiveTab]             = useState('home') // 'home' | 'dapp'
   const [activeNetwork, setActiveNetwork]     = useState('bradbury')
   const [coins, setCoins]                     = useState(PRESET_COINS)
@@ -203,18 +203,17 @@ function GenSignalAppContent() {
   const fetchCoins = useCallback(async () => {
     setIsRefreshingCoins(true)
     try {
-      if (BACKEND_URL && !BACKEND_URL.includes(window.location.host)) {
-        const res = await fetch(`${BACKEND_URL}/api/coins`)
-        if (res.ok) {
-          setCoins(await res.json())
-          setPriceCountdown(PRICE_REFRESH_INTERVAL_SEC)
-        }
+      await ensureBackendAlive()
+      const res = await fetch(`${activeBackendUrl}/api/coins`, { cache: 'no-store' })
+      if (res.ok) {
+        setCoins(await res.json())
+        setPriceCountdown(PRICE_REFRESH_INTERVAL_SEC)
       }
     } catch {}
     finally {
       setIsRefreshingCoins(false)
     }
-  }, [])
+  }, [activeBackendUrl, ensureBackendAlive])
 
   useEffect(() => { fetchCoins() }, [fetchCoins])
 
@@ -234,8 +233,8 @@ function GenSignalAppContent() {
   // ── 3. Load Admin Wallet Address ─────────────────────────────────────────
   const fetchAdminAddress = useCallback(async () => {
     try {
-      if (BACKEND_URL && !BACKEND_URL.includes(window.location.host)) {
-        const res = await fetch(`${BACKEND_URL}/api/admin/address?network=${activeNetwork}`)
+      if (activeBackendUrl) {
+        const res = await fetch(`${activeBackendUrl}/api/admin/address?network=${activeNetwork}`)
         if (res.ok) {
           const data = await res.json()
           if (data.address) {
@@ -248,7 +247,7 @@ function GenSignalAppContent() {
     } catch {}
     setEnvAddress('0xe1966fcb8c2018Ff18f7bE7A92F7E5fB09776bC2')
     if (!userAddress) setRealGenBalance('18.6563')
-  }, [activeNetwork, userAddress])
+  }, [activeNetwork, userAddress, activeBackendUrl])
 
   useEffect(() => { fetchAdminAddress() }, [fetchAdminAddress])
 
@@ -256,8 +255,8 @@ function GenSignalAppContent() {
   const fetchBalance = useCallback(async () => {
     const target = userAddress || envAddress || '0xe1966fcb8c2018Ff18f7bE7A92F7E5fB09776bC2'
     try {
-      if (BACKEND_URL && !BACKEND_URL.includes(window.location.host)) {
-        const res = await fetch(`${BACKEND_URL}/api/wallet/balance/${target}?network=${activeNetwork}`)
+      if (activeBackendUrl) {
+        const res = await fetch(`${activeBackendUrl}/api/wallet/balance/${target}?network=${activeNetwork}`)
         if (res.ok) {
           const data = await res.json()
           setRealGenBalance(data.balance_gen || '18.6563')
@@ -266,7 +265,7 @@ function GenSignalAppContent() {
       }
     } catch {}
     setRealGenBalance('18.6563')
-  }, [activeNetwork, userAddress, envAddress])
+  }, [activeNetwork, userAddress, envAddress, activeBackendUrl])
 
   useEffect(() => {
     const target = userAddress || envAddress
@@ -327,6 +326,7 @@ function GenSignalAppContent() {
     let userSig = null
 
     try {
+      await ensureBackendAlive()
       // Step 1: Signature
       setExecutionStep('Step 1/3: Requesting Wallet Signature…')
       if (userAddress && window.ethereum) {
@@ -348,9 +348,10 @@ function GenSignalAppContent() {
       }
 
       // Step 2: x402 Payment
-      setExecutionStep('Step 2/3: Executing x402 Payment on SignalTreasury…')
+      setExecutionStep('STEP 01: Signing x402 Micropayment (0.05 GEN)…')
       addLog(`💸 [Step 2/3] Sending x402 payment (${stratObj.fee}) to SignalTreasury…`, 'hi')
       
+      await ensureBackendAlive()
       const payRes = await fetch(`${activeBackendUrl}/api/signal/pay`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -375,6 +376,7 @@ function GenSignalAppContent() {
       setExecutionStep('Step 3/3: Invoking Groq LLM & AI-Validators…')
       addLog(`🧠 [Step 3/3] Invoking Groq LLM & GenLayer Optimistic Democracy (${selectedTimeframe.toUpperCase()} TF)…`, 'hi')
 
+      await ensureBackendAlive()
       const res = await fetch(`${activeBackendUrl}/api/signal/evaluate`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
