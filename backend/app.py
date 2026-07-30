@@ -306,10 +306,9 @@ def pay_for_signal(body: PayRequest):
             )
             if w_tx:
                 pay_tx = _clean_tx_hash(w_tx)
-                client.wait_for_transaction_receipt(w_tx)
     except Exception as de:
         print(f"[Treasury Pay Error]: {de}")
-        raise HTTPException(status_code=500, detail=f"GenLayer x402 Micropayment transaction failed: {de}")
+        raise HTTPException(status_code=500, detail=f"GenLayer x402 Micropayment transaction submission failed: {de}")
 
     clean_pay_tx = _clean_tx_hash(pay_tx)
     if not clean_pay_tx:
@@ -319,17 +318,6 @@ def pay_for_signal(body: PayRequest):
         "status": "paid",
         "treasury_address": str(treasury_addr),
         "treasury_tx_hash": clean_pay_tx,
-        "user": body.user_identity or TREASURY_ADDRESS,
-        "pair": body.pair,
-        "fee_gen": X402_FEE_GEN,
-        "fee_wei": str(X402_FEE_WEI),
-        "network": body.network
-    }
-
-    return {
-        "status": "paid",
-        "treasury_address": str(treasury_addr),
-        "treasury_tx_hash": _clean_tx_hash(pay_tx),
         "user": body.user_identity or TREASURY_ADDRESS,
         "pair": body.pair,
         "fee_gen": X402_FEE_GEN,
@@ -525,13 +513,12 @@ Respond STRICTLY with a valid JSON object matching this exact schema — no mark
             )
             if write_tx:
                 tx_hash = _clean_tx_hash(write_tx)
-            client.wait_for_transaction_receipt(write_tx)
-            signal_report = _read_signal(client, ca)
+            signal_report = groq_signal
             if signal_report:
                 signal_report["user_identity"] = user_identity
     except Exception as ge:
         print(f"[Oracle Execution Error]: {ge}")
-        raise HTTPException(status_code=500, detail=f"GenLayer Oracle Consensus transaction failed: {ge}")
+        raise HTTPException(status_code=500, detail=f"GenLayer Oracle Consensus transaction submission failed: {ge}")
 
     clean_tx_hash = _clean_tx_hash(tx_hash)
     if not clean_tx_hash:
