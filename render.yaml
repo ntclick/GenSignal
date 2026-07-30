@@ -1,0 +1,17 @@
+services:
+  - type: web
+    name: gensignal-backend
+    env: python
+    region: singapore
+    plan: free
+    buildCommand: pip install -r backend/requirements.txt
+    startCommand: uvicorn backend.app:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.9
+      - key: DEFAULT_NETWORK
+        value: bradbury
+      - key: GENLAYER_PRIVATE_KEY
+        sync: false
+      - key: GROQ_API_KEY
+        sync: false
