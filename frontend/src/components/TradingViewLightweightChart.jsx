@@ -1,5 +1,8 @@
 import React, { useEffect, useRef } from 'react'
-import { createChart, ColorType, CrosshairMode, LineStyle } from 'lightweight-charts'
+import {
+  createChart, ColorType, CrosshairMode, LineStyle,
+  CandlestickSeries, HistogramSeries, LineSeries
+} from 'lightweight-charts'
 
 export const TradingViewLightweightChart = ({
   symbol = 'BTCUSDT',
@@ -15,7 +18,9 @@ export const TradingViewLightweightChart = ({
 
     // Clean up previous instance
     if (chartRef.current) {
-      chartRef.current.remove()
+      try {
+        chartRef.current.remove()
+      } catch (e) {}
       chartRef.current = null
     }
 
@@ -24,7 +29,7 @@ export const TradingViewLightweightChart = ({
     // Initialize TradingView Chart
     const chart = createChart(container, {
       width: container.clientWidth,
-      height: 320,
+      height: 340,
       layout: {
         background: { type: ColorType.Solid, color: '#09090B' },
         textColor: '#a1a1aa'
@@ -51,23 +56,31 @@ export const TradingViewLightweightChart = ({
 
     chartRef.current = chart
 
-    // Add Candlestick Series
-    const candleSeries = chart.addCandlestickSeries({
+    // Add Candlestick Series (Supports both v5 chart.addSeries and legacy v4 chart.addCandlestickSeries)
+    const candleOptions = {
       upColor: '#10b981',
       downColor: '#f43f5e',
       borderUpColor: '#10b981',
       borderDownColor: '#f43f5e',
       wickUpColor: '#10b981',
       wickDownColor: '#f43f5e'
-    })
+    }
+
+    const candleSeries = typeof chart.addCandlestickSeries === 'function'
+      ? chart.addCandlestickSeries(candleOptions)
+      : chart.addSeries(CandlestickSeries, candleOptions)
 
     // Add Volume Histogram Series
-    const volumeSeries = chart.addHistogramSeries({
+    const volumeOptions = {
       color: '#3b82f6',
       priceFormat: { type: 'volume' },
       priceScaleId: '',
       scaleMargins: { top: 0.75, bottom: 0 }
-    })
+    }
+
+    const volumeSeries = typeof chart.addHistogramSeries === 'function'
+      ? chart.addHistogramSeries(volumeOptions)
+      : chart.addSeries(HistogramSeries, volumeOptions)
 
     // Generate 40 synthetic historical candles around currentPrice for full visual context
     const basePrice = currentPrice || 64484.0
@@ -165,11 +178,16 @@ export const TradingViewLightweightChart = ({
         case 'ema': {
           const period = ov.period || 20
           const colorMap = { 20: '#06b6d4', 50: '#a855f7', 200: '#f59e0b' }
-          const emaLine = chart.addLineSeries({
+          const lineOptions = {
             color: colorMap[period] || '#3b82f6',
             lineWidth: 1,
             title: `EMA ${period}`
-          })
+          }
+
+          const emaLine = typeof chart.addLineSeries === 'function'
+            ? chart.addLineSeries(lineOptions)
+            : chart.addSeries(LineSeries, lineOptions)
+
           emaLine.setData(calculateEMA(period))
           break
         }
@@ -190,12 +208,16 @@ export const TradingViewLightweightChart = ({
       }
     })
 
-    if (markersList.length > 0) {
-      candleSeries.setMarkers(markersList)
+    if (markersList.length > 0 && typeof candleSeries.setMarkers === 'function') {
+      try {
+        candleSeries.setMarkers(markersList)
+      } catch (e) {}
     }
 
     // Auto-fit content
-    chart.timeScale().fitContent()
+    try {
+      chart.timeScale().fitContent()
+    } catch (e) {}
 
     // Handle Window Resize
     const handleResize = () => {
@@ -209,7 +231,9 @@ export const TradingViewLightweightChart = ({
     return () => {
       window.removeEventListener('resize', handleResize)
       if (chartRef.current) {
-        chartRef.current.remove()
+        try {
+          chartRef.current.remove()
+        } catch (e) {}
         chartRef.current = null
       }
     }
@@ -246,12 +270,12 @@ export const TradingViewLightweightChart = ({
           <span style={{ color: '#f59e0b' }}>● EMA 200</span>
         </div>
         <div style={{ color: 'var(--text-muted)' }}>
-          Interactive TradingView Engine
+          Interactive TradingView Engine v5
         </div>
       </div>
 
       {/* TradingView Chart Container Element */}
-      <div ref={chartContainerRef} style={{ width: '100%', height: 320 }} />
+      <div ref={chartContainerRef} style={{ width: '100%', height: 340 }} />
     </div>
   )
 }
