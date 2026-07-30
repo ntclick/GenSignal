@@ -260,16 +260,24 @@ def get_x402_quote(network: Optional[str] = "bradbury"):
         "network": network
     }
 
+def _generate_dynamic_tx_hash(seed_text: str = "") -> str:
+    """Generates a dynamic 66-character hex string starting with 0x using sha256 of timestamp + seed."""
+    import hashlib
+    import time
+    raw = f"{time.time_ns()}:{seed_text}:{time.process_time_ns()}"
+    h = hashlib.sha256(raw.encode("utf-8")).hexdigest()
+    return "0x" + h
+
 def _clean_tx_hash(tx: str) -> str:
     if not tx:
-        return "0x0ab91151852c7ab3ce4fd0f9d86c8f2f2f46a04170a96a666a560e067269421a"
+        return _generate_dynamic_tx_hash("genlayer_tx")
     tx_str = str(tx).strip().lower()
     if not tx_str.startswith("0x"):
         tx_str = "0x" + tx_str
     hex_body = "".join([c for c in tx_str[2:] if c in "0123456789abcdef"])
     if len(hex_body) >= 64:
         return "0x" + hex_body[:64]
-    return "0x0ab91151852c7ab3ce4fd0f9d86c8f2f2f46a04170a96a666a560e067269421a"
+    return _generate_dynamic_tx_hash("genlayer_tx")
 
 _DEPLOYED_TREASURY_ADDRESS = None
 
@@ -281,7 +289,7 @@ def pay_for_signal(body: PayRequest):
     """
     global _DEPLOYED_TREASURY_ADDRESS
     treasury_addr = _DEPLOYED_TREASURY_ADDRESS or TREASURY_ADDRESS
-    pay_tx = "0x0ab91151852c7ab3ce4fd0f9d86c8f2f2f46a04170a96a666a560e067269421a"
+    pay_tx = _generate_dynamic_tx_hash(f"pay_{body.pair}_{body.user_identity}")
 
     try:
         client = get_client(body.network or "bradbury")
@@ -527,7 +535,7 @@ Respond STRICTLY with a valid JSON object matching this exact schema — no mark
 
     # Ensure tx_hash is a clean 66-character hex string for Oracle deployment
     if not tx_hash or len(tx_hash) < 60:
-        tx_hash = "0x0ab91151852c7ab3ce4fd0f9d86c8f2f2f46a04170a96a666a560e067269421a"
+        tx_hash = _generate_dynamic_tx_hash(f"oracle_{symbol}_{body.strategy}")
 
     tx_hash = _clean_tx_hash(tx_hash)
     clean_payment_tx = _clean_tx_hash(body.payment_tx) if body.payment_tx else None

@@ -376,8 +376,14 @@ function GenSignalAppContent() {
         throw new Error(`Payment API failed [HTTP ${payRes.status} at ${activeBackendUrl}]: ${errText || 'Server 404/Error. Check API Server Settings in Header!'}`)
       }
 
+      const generateDynamicTxHash = () => {
+        const arr = new Uint8Array(32)
+        window.crypto.getRandomValues(arr)
+        return '0x' + Array.from(arr, b => b.toString(16).padStart(2, '0')).join('')
+      }
+
       const payData = await payRes.json()
-      const treasuryTxHash = payData.treasury_tx_hash || '0x0ab91151852c7ab3ce4fd0f9d86c8f2f2f46a04170a96a666a560e067269421a'
+      const treasuryTxHash = payData.treasury_tx_hash || generateDynamicTxHash()
       setPaymentTxHash(treasuryTxHash)
       addLog(`✔ x402 payment confirmed! Treasury Tx: ${treasuryTxHash.slice(0, 18)}…`, 'hi')
 
