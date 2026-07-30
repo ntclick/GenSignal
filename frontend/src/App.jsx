@@ -82,6 +82,11 @@ export default function App() {
   const [showResultModal, setShowResultModal] = useState(false)
   const [txHash, setTxHash]                   = useState('')
   const [error, setError]                     = useState('')
+  const [customBackendUrl, setCustomBackendUrl] = useState(() => localStorage.getItem('gensignal_custom_backend') || import.meta.env.VITE_BACKEND_URL || 'http://localhost:8001')
+  const [showApiModal, setShowApiModal]       = useState(false)
+  const [apiInput, setApiInput]               = useState(customBackendUrl)
+
+  const activeBackendUrl = customBackendUrl.replace(/\/$/, '')
 
   // Live price refresh countdown
   const [priceCountdown, setPriceCountdown]   = useState(PRICE_REFRESH_INTERVAL_SEC)
@@ -292,7 +297,7 @@ export default function App() {
       setExecutionStep('Step 2/3: Executing x402 Payment on SignalTreasury…')
       addLog(`💸 [Step 2/3] Sending x402 payment (${stratObj.fee}) to SignalTreasury…`, 'hi')
       
-      const payRes = await fetch(`${BACKEND_URL}/api/signal/pay`, {
+      const payRes = await fetch(`${activeBackendUrl}/api/signal/pay`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -304,7 +309,7 @@ export default function App() {
 
       if (!payRes.ok) {
         const errText = await payRes.text().catch(() => '')
-        throw new Error(`Payment API failed [HTTP ${payRes.status}]: ${errText || 'Server Error'}`)
+        throw new Error(`Payment API failed [HTTP ${payRes.status} at ${activeBackendUrl}]: ${errText || 'Server 404/Error. Check API Server Settings in Header!'}`)
       }
 
       const payData = await payRes.json()
@@ -315,7 +320,7 @@ export default function App() {
       setExecutionStep('Step 3/3: Invoking Groq LLM & AI-Validators…')
       addLog(`🧠 [Step 3/3] Invoking Groq LLM & GenLayer Optimistic Democracy (${selectedTimeframe.toUpperCase()} TF)…`, 'hi')
 
-      const res = await fetch(`${BACKEND_URL}/api/signal/evaluate`, {
+      const res = await fetch(`${activeBackendUrl}/api/signal/evaluate`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -332,7 +337,7 @@ export default function App() {
 
       if (!res.ok) {
         const errText = await res.text().catch(() => '')
-        throw new Error(`Signal Evaluation API failed [HTTP ${res.status}]: ${errText || 'Server Error'}`)
+        throw new Error(`Signal Evaluation API failed [HTTP ${res.status} at ${activeBackendUrl}]: ${errText || 'Server Error. Check API Server Settings in Header!'}`)
       }
 
       const data = await res.json()
@@ -405,7 +410,15 @@ export default function App() {
             </div>
           </div>
 
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            <button
+              className="btn btn-ghost"
+              onClick={() => { setApiInput(customBackendUrl); setShowApiModal(true); }}
+              style={{ padding: '6px 12px', fontSize: 12, display: 'flex', alignItems: 'center', gap: 6, borderColor: 'rgba(6,182,212,0.4)', color: 'var(--accent-cyan)' }}
+              title="Configure Backend API Server URL"
+            >
+              <Cpu size={13} /> API Server
+            </button>
+
             <select
               value={activeNetwork}
               onChange={e => setActiveNetwork(e.target.value)}
@@ -884,6 +897,43 @@ export default function App() {
               </a>
             </div>
           )}
+        </div>
+      )}
+      {/* ── API Server Settings Modal ────────────────────────────────────── */}
+      {showApiModal && (
+        <div className="modal-overlay" onClick={() => setShowApiModal(false)}>
+          <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: 460 }}>
+            <div style={{ fontWeight: 700, fontSize: 18, marginBottom: 12, color: 'var(--accent-cyan)' }}>
+              ⚙️ Backend API Server Settings
+            </div>
+            <p style={{ fontSize: 13, color: 'var(--text-secondary)', marginBottom: 16 }}>
+              Configure the Python FastAPI Backend endpoint. For local development or localhost testing from Vercel, enter your backend URL (e.g., <code>http://localhost:8001</code>).
+            </p>
+            <input
+              type="text"
+              value={apiInput}
+              onChange={e => setApiInput(e.target.value)}
+              placeholder="http://localhost:8001"
+              style={{
+                width: '100%', padding: '10px 14px', borderRadius: 10, background: '#0f172a',
+                border: '1px solid var(--accent-cyan)', color: '#fff', fontSize: 13, fontFamily: 'var(--font-mono)', marginBottom: 16
+              }}
+            />
+            <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+              <button className="btn btn-ghost" onClick={() => setShowApiModal(false)}>Cancel</button>
+              <button
+                className="btn btn-cyan"
+                onClick={() => {
+                  const trimmed = apiInput.trim() || 'http://localhost:8001'
+                  setCustomBackendUrl(trimmed)
+                  localStorage.setItem('gensignal_custom_backend', trimmed)
+                  setShowApiModal(false)
+                }}
+              >
+                Save API Endpoint
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>
