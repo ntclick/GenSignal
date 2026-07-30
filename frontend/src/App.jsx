@@ -78,6 +78,7 @@ const getSanitizedBackendUrl = (url) => {
 }
 
 export default function App() {
+  const [activeTab, setActiveTab]             = useState('home') // 'home' | 'dapp'
   const [activeNetwork, setActiveNetwork]     = useState('bradbury')
   const [coins, setCoins]                     = useState(PRESET_COINS)
   const [searchQuery, setSearchQuery]         = useState('')
@@ -411,9 +412,9 @@ export default function App() {
       )}
 
       {/* ── Header ──────────────────────────────────────────────────────────── */}
-      <header className="header" style={{ background: 'transparent', borderBottom: 'none' }}>
-        <div className="header-inner" style={{ padding: '18px 0' }}>
-          <div className="logo">
+      <header className="header" style={{ background: 'rgba(7,10,18,0.92)', borderBottom: '1px solid var(--border-glass)' }}>
+        <div className="header-inner" style={{ padding: '14px 24px' }}>
+          <div className="logo" onClick={() => setActiveTab('home')} style={{ cursor: 'pointer' }}>
             <div className="logo-icon">
               <Cpu size={22} color="#fff" />
             </div>
@@ -425,6 +426,23 @@ export default function App() {
             </div>
           </div>
 
+          {/* Nav Tabs */}
+          <div className="nav-tabs">
+            <button
+              className={`nav-tab ${activeTab === 'home' ? 'active' : ''}`}
+              onClick={() => setActiveTab('home')}
+            >
+              <Activity size={14} /> Overview
+            </button>
+            <button
+              className={`nav-tab ${activeTab === 'dapp' ? 'active' : ''}`}
+              onClick={() => setActiveTab('dapp')}
+            >
+              <Zap size={14} /> Launch dApp
+            </button>
+          </div>
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
             <button
               className="btn btn-ghost"
               onClick={() => { setApiInput(customBackendUrl); setShowApiModal(true); }}
@@ -468,30 +486,195 @@ export default function App() {
               </div>
             ) : (
               <button className="btn btn-cyan" style={{ padding: '8px 18px', fontSize: 13 }} onClick={connectWallet}>
-                <Wallet size={15} /> Connect MetaMask
+                <Wallet size={15} /> Connect Wallet
               </button>
             )}
+          </div>
         </div>
       </header>
 
-      {/* ── Hero ─────────────────────────────────────────────────────────────── */}
-      <section className="hero">
-        <h1>AI-Validator Consensus Trading Oracle</h1>
-        <p>
-          Executing x402 Micropayments & GenVM Optimistic Democracy on <strong>GenLayer Bradbury Testnet</strong>.
-        </p>
-        {activeNetwork === 'bradbury' && (
-          <div style={{ marginTop: 10 }}>
-            <a
-              href="https://testnet-faucet.genlayer.foundation"
-              target="_blank" rel="noopener noreferrer"
-              style={{ color: 'var(--accent-cyan)', fontSize: 13, display: 'inline-flex', alignItems: 'center', gap: 6, textDecoration: 'underline' }}
-            >
-              Get Bradbury Testnet GEN Faucet Tokens <ExternalLink size={13} />
-            </a>
+      {/* ── LANDING / HOME VIEW ───────────────────────────────────────────── */}
+      {activeTab === 'home' && (
+        <div>
+          {/* Hero */}
+          <section className="hero">
+            <div style={{ display: 'inline-flex', alignItems: 'center', gap: 8, padding: '4px 14px', borderRadius: 99, background: 'rgba(6,182,212,0.12)', border: '1px solid rgba(6,182,212,0.3)', color: 'var(--accent-cyan)', fontSize: 12, fontWeight: 700, fontFamily: 'var(--font-mono)', marginBottom: 20 }}>
+              <Sparkles size={14} /> GENLAYER BRADBURY TESTNET · OPTIMISTIC DEMOCRACY
+            </div>
+            <h1>Decentralized AI Trading Oracle Powered by GenVM</h1>
+            <p style={{ fontSize: 16, maxWidth: 720, margin: '0 auto 28px' }}>
+              Combining multi-validator AI consensus with on-chain <strong>x402 Micropayments</strong>. Get verifiable, data-backed trading intelligence across 23+ crypto assets.
+            </p>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 14, flexWrap: 'wrap' }}>
+              <button
+                className="btn btn-cyan"
+                style={{ padding: '12px 28px', fontSize: 15, borderRadius: 99, display: 'flex', alignItems: 'center', gap: 8, boxShadow: '0 0 25px var(--accent-glow)' }}
+                onClick={() => setActiveTab('dapp')}
+              >
+                <Zap size={18} /> Launch dApp Platform <ArrowRight size={18} />
+              </button>
+              <a
+                href={EXPLORER_URL}
+                target="_blank" rel="noopener noreferrer"
+                className="btn btn-ghost"
+                style={{ padding: '12px 24px', fontSize: 15, borderRadius: 99, display: 'flex', alignItems: 'center', gap: 8 }}
+              >
+                🔗 Block Explorer <ExternalLink size={15} />
+              </a>
+            </div>
+          </section>
+
+          {/* Stats Bar Grid */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 16, margin: '16px 0 40px' }}>
+            <div className="card" style={{ textAlign: 'center', padding: '20px 16px', marginBottom: 0 }}>
+              <div style={{ fontSize: 26, fontWeight: 800, color: 'var(--accent-cyan)', fontFamily: 'var(--font-mono)' }}>0.05 GEN</div>
+              <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 4 }}>x402 Micro-fee Settlement</div>
+            </div>
+            <div className="card" style={{ textAlign: 'center', padding: '20px 16px', marginBottom: 0 }}>
+              <div style={{ fontSize: 26, fontWeight: 800, color: '#10b981', fontFamily: 'var(--font-mono)' }}>100% On-Chain</div>
+              <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 4 }}>GenVM Optimistic Democracy</div>
+            </div>
+            <div className="card" style={{ textAlign: 'center', padding: '20px 16px', marginBottom: 0 }}>
+              <div style={{ fontSize: 26, fontWeight: 800, color: 'var(--accent-indigo)', fontFamily: 'var(--font-mono)' }}>23 Assets</div>
+              <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 4 }}>Major Crypto & Memecoins</div>
+            </div>
+            <div className="card" style={{ textAlign: 'center', padding: '20px 16px', marginBottom: 0 }}>
+              <div style={{ fontSize: 26, fontWeight: 800, color: '#f59e0b', fontFamily: 'var(--font-mono)' }}>8 Engines</div>
+              <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 4 }}>Technical Strategy Models</div>
+            </div>
           </div>
-        )}
-      </section>
+
+          {/* Key Features Grid */}
+          <div style={{ margin: '40px 0' }}>
+            <div style={{ textTransform: 'uppercase', fontSize: 12, letterSpacing: 1.5, color: 'var(--accent-cyan)', fontWeight: 700, textAlign: 'center', marginBottom: 8, fontFamily: 'var(--font-mono)' }}>
+              Core Innovations
+            </div>
+            <h2 style={{ textAlign: 'center', fontSize: 28, fontFamily: 'var(--font-display)', marginBottom: 32 }}>
+              Why GenSignal is Built Differently
+            </h2>
+            <div className="feature-grid">
+              <div className="feature-card">
+                <div style={{ width: 44, height: 44, borderRadius: 12, background: 'rgba(6,182,212,0.15)', border: '1px solid rgba(6,182,212,0.3)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--accent-cyan)', marginBottom: 16 }}>
+                  <Lock size={22} />
+                </div>
+                <h3 style={{ fontSize: 18, marginBottom: 8 }}>x402 Micropayments</h3>
+                <p style={{ fontSize: 14, color: 'var(--text-secondary)' }}>
+                  Pay a 0.05 GEN fee on-chain via SignalTreasury smart contracts. Real 66-character transaction hashes verified on GenLayer Testnet Explorer.
+                </p>
+              </div>
+
+              <div className="feature-card">
+                <div style={{ width: 44, height: 44, borderRadius: 12, background: 'rgba(16,185,129,0.15)', border: '1px solid rgba(16,185,129,0.3)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#10b981', marginBottom: 16 }}>
+                  <ShieldCheck size={22} />
+                </div>
+                <h3 style={{ fontSize: 18, marginBottom: 8 }}>GenVM AI-Validator Consensus</h3>
+                <p style={{ fontSize: 14, color: 'var(--text-secondary)' }}>
+                  Multi-node Optimistic Democracy adjudicates candle indicators on-chain before finalizing consensus decisions on GenLayer.
+                </p>
+              </div>
+
+              <div className="feature-card">
+                <div style={{ width: 44, height: 44, borderRadius: 12, background: 'rgba(139,92,246,0.15)', border: '1px solid rgba(139,92,246,0.3)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#8b5cf6', marginBottom: 16 }}>
+                  <Cpu size={22} />
+                </div>
+                <h3 style={{ fontSize: 18, marginBottom: 8 }}>Senior Quant Desk Thesis</h3>
+                <p style={{ fontSize: 14, color: 'var(--text-secondary)' }}>
+                  Groq LLaMA 3.3 70B delivers a sharp 2-sentence executive summary citing exact numerical metrics (RSI, RVOL, % Trend, Bollinger Squeeze).
+                </p>
+              </div>
+
+              <div className="feature-card">
+                <div style={{ width: 44, height: 44, borderRadius: 12, background: 'rgba(245,158,11,0.15)', border: '1px solid rgba(245,158,11,0.3)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#f59e0b', marginBottom: 16 }}>
+                  <Activity size={22} />
+                </div>
+                <h3 style={{ fontSize: 18, marginBottom: 8 }}>Multi-Timeframe Desk</h3>
+                <p style={{ fontSize: 14, color: 'var(--text-secondary)' }}>
+                  Seamlessly toggle between 15m Scalp, 1h Intraday, 4h Swing, and 1d Position candles with dual execution and macro context.
+                </p>
+              </div>
+            </div>
+          </div>
+
+          {/* 3-Step Interactive Process */}
+          <div className="card" style={{ background: 'rgba(15,23,42,0.95)', border: '1px solid rgba(6,182,212,0.3)', padding: 32, margin: '40px 0' }}>
+            <div style={{ textTransform: 'uppercase', fontSize: 12, letterSpacing: 1.5, color: 'var(--accent-cyan)', fontWeight: 700, marginBottom: 8, fontFamily: 'var(--font-mono)' }}>
+              Execution Workflow
+            </div>
+            <h2 style={{ fontSize: 24, fontFamily: 'var(--font-display)', marginBottom: 24 }}>
+              How GenSignal Adjudicates On-Chain
+            </h2>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: 20 }}>
+              <div style={{ background: 'rgba(255,255,255,0.03)', padding: 20, borderRadius: 14, border: '1px solid var(--border-glass)' }}>
+                <div style={{ fontSize: 12, fontFamily: 'var(--font-mono)', color: 'var(--accent-cyan)', fontWeight: 700, marginBottom: 8 }}>STEP 01</div>
+                <div style={{ fontWeight: 700, fontSize: 16, marginBottom: 6 }}>Select Asset & Strategy</div>
+                <div style={{ fontSize: 13, color: 'var(--text-secondary)' }}>Choose from 23 assets and 8 technical indicators across 4 execution timeframes.</div>
+              </div>
+              <div style={{ background: 'rgba(255,255,255,0.03)', padding: 20, borderRadius: 14, border: '1px solid var(--border-glass)' }}>
+                <div style={{ fontSize: 12, fontFamily: 'var(--font-mono)', color: '#10b981', fontWeight: 700, marginBottom: 8 }}>STEP 02</div>
+                <div style={{ fontWeight: 700, fontSize: 16, marginBottom: 6 }}>Sign & Pay x402 Fee</div>
+                <div style={{ fontSize: 13, color: 'var(--text-secondary)' }}>Authorize 0.05 GEN fee payment using MetaMask personal_sign authentication.</div>
+              </div>
+              <div style={{ background: 'rgba(255,255,255,0.03)', padding: 20, borderRadius: 14, border: '1px solid var(--border-glass)' }}>
+                <div style={{ fontSize: 12, fontFamily: 'var(--font-mono)', color: '#8b5cf6', fontWeight: 700, marginBottom: 8 }}>STEP 03</div>
+                <div style={{ fontWeight: 700, fontSize: 16, marginBottom: 6 }}>GenVM Validator Consensus</div>
+                <div style={{ fontSize: 13, color: 'var(--text-secondary)' }}>AI-Validators adjudicate on-chain and return verifiable quant signal reports.</div>
+              </div>
+            </div>
+          </div>
+
+          {/* Asset Showcase Preview */}
+          <div style={{ margin: '40px 0' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
+              <div>
+                <h2 style={{ fontSize: 22, fontFamily: 'var(--font-display)', margin: 0 }}>Supported Assets & Memecoins</h2>
+                <p style={{ fontSize: 13, color: 'var(--text-secondary)', margin: 0 }}>Instant live price feeds with 10-decimal precision</p>
+              </div>
+              <button className="btn btn-cyan" onClick={() => setActiveTab('dapp')} style={{ fontSize: 13 }}>
+                View All 23 Assets <ArrowRight size={14} />
+              </button>
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: 14 }}>
+              {PRESET_COINS.slice(0, 8).map(c => (
+                <div
+                  key={c.sym}
+                  className="card"
+                  onClick={() => { setSelectedCoin(c.sym); setActiveTab('dapp'); }}
+                  style={{ marginBottom: 0, padding: 16, cursor: 'pointer', transition: 'all 0.2s ease', border: '1px solid var(--border-glass)' }}
+                >
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                    <div style={{ fontWeight: 800, fontSize: 15, fontFamily: 'var(--font-mono)' }}>{c.sym}</div>
+                    <span style={{ fontSize: 11, fontWeight: 700, color: c.change.startsWith('+') ? '#10b981' : '#f43f5e' }}>{c.change}</span>
+                  </div>
+                  <div style={{ fontSize: 14, fontWeight: 700, fontFamily: 'var(--font-mono)', color: 'var(--accent-cyan)' }}>{c.price}</div>
+                  <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 4 }}>{c.name}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── DAPP PLATFORM VIEW ────────────────────────────────────────────── */}
+      {activeTab === 'dapp' && (
+        <div>
+          {/* Hero Header */}
+          <section className="hero" style={{ padding: '20px 24px 16px' }}>
+            <h1>AI-Validator Consensus Trading Oracle</h1>
+            <p>
+              Executing x402 Micropayments & GenVM Optimistic Democracy on <strong>GenLayer Bradbury Testnet</strong>.
+            </p>
+            {activeNetwork === 'bradbury' && (
+              <div style={{ marginTop: 8 }}>
+                <a
+                  href="https://testnet-faucet.genlayer.foundation"
+                  target="_blank" rel="noopener noreferrer"
+                  style={{ color: 'var(--accent-cyan)', fontSize: 13, display: 'inline-flex', alignItems: 'center', gap: 6, textDecoration: 'underline' }}
+                >
+                  Get Bradbury Testnet GEN Faucet Tokens <ExternalLink size={13} />
+                </a>
+              </div>
+            )}
+          </section>
 
       {/* ── Wallet Balance Card ───────────────────────────────────────────────── */}
       <div className="card" style={{ borderColor: 'rgba(6,182,212,0.4)', background: 'rgba(15,23,42,0.85)' }}>
@@ -933,6 +1116,8 @@ export default function App() {
               )}
             </div>
           )}
+        </div>
+      )}
         </div>
       )}
       {/* ── API Server Settings Modal ────────────────────────────────────── */}
