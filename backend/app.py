@@ -120,6 +120,7 @@ def get_admin_address(network: Optional[str] = "bradbury"):
         "balance_gen": f"{balance_gen:.4f}"
     }
 
+@app.get("/health")
 @app.get("/api/health")
 def health(network: Optional[str] = "bradbury"):
     client = get_client(network)

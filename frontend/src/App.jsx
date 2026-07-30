@@ -4,6 +4,7 @@ import {
   AlertTriangle, ArrowRight, Layers,
   Wallet, Lock, Copy, Check, ExternalLink, LogOut, RefreshCw, Activity, Cpu, Sparkles, Loader2
 } from 'lucide-react'
+import { BackendWarmupProvider, useBackendWarmup } from './context/BackendWarmupContext'
 
 const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || 'http://localhost:8001'
 const LOCAL_STORAGE_WALLET_KEY = 'gensignal_connected_wallet'
@@ -110,7 +111,8 @@ const getSanitizedBackendUrl = (url) => {
   return trimmed
 }
 
-export default function App() {
+function GenSignalAppContent() {
+  const { isBackendReady } = useBackendWarmup()
   const [activeTab, setActiveTab]             = useState('home') // 'home' | 'dapp'
   const [activeNetwork, setActiveNetwork]     = useState('bradbury')
   const [coins, setCoins]                     = useState(PRESET_COINS)
@@ -519,6 +521,8 @@ export default function App() {
             <button
               className="btn-launch-dapp"
               onClick={() => setActiveTab('dapp')}
+              disabled={!isBackendReady}
+              style={{ opacity: !isBackendReady ? 0.6 : 1, cursor: !isBackendReady ? 'not-allowed' : 'pointer' }}
             >
               <Zap size={14} /> Launch dApp
             </button>
@@ -1114,7 +1118,12 @@ export default function App() {
         </div>
 
         <div style={{ marginTop: 24, textAlign: 'right' }}>
-          <button className="btn btn-cyan" onClick={() => setShowSignModal(true)} disabled={loading}>
+          <button
+            className="btn btn-cyan"
+            onClick={() => setShowSignModal(true)}
+            disabled={!isBackendReady || loading}
+            style={{ opacity: !isBackendReady || loading ? 0.6 : 1, cursor: !isBackendReady || loading ? 'not-allowed' : 'pointer' }}
+          >
             {loading
               ? <><div className="spinner" /> Executing AI Consensus…</>
               : <><Zap size={16} /> Sign & Execute Signal <ArrowRight size={16} /></>
@@ -1456,5 +1465,18 @@ export default function App() {
         </div>
       )}
     </div>
+  )
+}
+
+export default function App() {
+  const [customBackendUrl] = useState(() => {
+    const stored = localStorage.getItem('gensignal_custom_backend')
+    return stored ? stored.trim() : (import.meta.env.VITE_BACKEND_URL || 'https://gensignal.onrender.com')
+  })
+
+  return (
+    <BackendWarmupProvider backendUrl={customBackendUrl}>
+      <GenSignalAppContent />
+    </BackendWarmupProvider>
   )
 }
