@@ -169,7 +169,6 @@ async def startup_warmup():
             if deploy_tx:
                 deploy_tx_str = str(deploy_tx).strip()
                 print(f"📜 [Startup] SignalTreasury deploy tx submitted: {deploy_tx_str}")
-                # Do NOT block here - resolve address lazily on first request
     except Exception as te:
         print(f"⚠️ [Startup Treasury Contract Note]: {te}")
 
@@ -563,12 +562,13 @@ def pay_for_signal(body: PayRequest):
         if not pay_tx:
             try:
                 treasury_code = CONTRACT_TREASURY.read_text(encoding="utf-8")
-                deploy_tx = client.deploy_contract(code=treasury_code, args=[user_id])
+                checksum_user = _to_checksum(user_id) if _is_valid_contract_address(user_id) else ""
+                deploy_tx = client.deploy_contract(code=treasury_code, args=[checksum_user])
                 if deploy_tx:
                     pay_tx = _clean_tx_hash(deploy_tx)
                     print(f"📜 [Pay] SignalTreasury deployment tx: {pay_tx}")
             except Exception as dep_err:
-                print(f"[Treasury Deploy Error]: {dep_err}")
+                print(f"[Treasury Deploy Note]: {dep_err}")
     except Exception as de:
         print(f"[Treasury Pay Error]: {de}")
         raise HTTPException(status_code=500, detail=f"GenLayer x402 Micropayment transaction failed: {de}")
