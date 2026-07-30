@@ -115,44 +115,173 @@ class PayRequest(BaseModel):
     pair: str            # e.g. "BTC/USDT"
     network: Optional[str] = "bradbury"
 
-@app.get("/api/admin/address")
-def get_admin_address(network: Optional[str] = "bradbury"):
-    """Returns the testnet wallet address derived from GENLAYER_PRIVATE_KEY in .env"""
-    client = get_client(network)
-    addr = str(client.local_account.address)
-    try:
-        balance_wei = client.get_balance(addr)
-        balance_gen = balance_wei / 10**18
-    except Exception:
-        balance_gen = 0.0
-    return {
-        "address": addr,
-        "network": network,
-        "currency": NATIVE_TOKEN_SYMBOL,
-        "balance_gen": f"{balance_gen:.4f}"
-    }
+# ── APPLICATION SINGLETONS & STARTUP WARM-UP ────────────────────────────────
+_GENLAYER_CLIENTS = {}
+_SHARED_HTTP_CLIENT = None
+_IS_BACKEND_READY = False
+_STARTUP_METRICS = {
+    "rpc_connect_ms": 0,
+    "wallet_init_ms": 0,
+    "explorer_init_ms": 0,
+    "started_at": ""
+}
 
+def get_singleton_client(network: str = "bradbury"):
+    global _GENLAYER_CLIENTS
+    net_key = network or "bradbury"
+    if net_key not in _GENLAYER_CLIENTS:
+        t0 = time.time()
+        client = get_client(net_key)
+        t1 = time.time()
+        _GENLAYER_CLIENTS[net_key] = client
+        _STARTUP_METRICS["rpc_connect_ms"] = round((t1 - t0) * 1000, 2)
+    return _GENLAYER_CLIENTS[net_key]
+
+@app.on_event("startup")
+async def startup_warmup():
+    global _SHARED_HTTP_CLIENT, _IS_BACKEND_READY, _STARTUP_METRICS
+    t_start = time.time()
+    _STARTUP_METRICS["started_at"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+
+    # 1. Initialize Shared Async HTTP Client Singleton
+    _SHARED_HTTP_CLIENT = httpx.AsyncClient(timeout=15.0)
+
+    # 2. Warm up GenLayer RPC Client & Wallet Singleton
+    try:
+        t0 = time.time()
+        client = get_singleton_client("bradbury")
+        addr = str(client.local_account.address)
+        t1 = time.time()
+        _STARTUP_METRICS["wallet_init_ms"] = round((t1 - t0) * 1000, 2)
+        print(f"✅ [Startup] GenLayer Bradbury RPC & Wallet connected: {addr} ({_STARTUP_METRICS['wallet_init_ms']}ms)")
+    except Exception as e:
+        print(f"⚠️ [Startup Warning] GenLayer RPC connect error: {e}")
+
+    # 3. Probe Explorer API Connectivity
+    try:
+        t0 = time.time()
+        res = await _SHARED_HTTP_CLIENT.get("https://explorer-api.testnet-chain.genlayer.com/docs")
+        t1 = time.time()
+        _STARTUP_METRICS["explorer_init_ms"] = round((t1 - t0) * 1000, 2)
+        print(f"✅ [Startup] GenLayer Explorer API probe success ({_STARTUP_METRICS['explorer_init_ms']}ms)")
+    except Exception as e:
+        print(f"⚠️ [Startup Warning] Explorer API probe error: {e}")
+
+    _IS_BACKEND_READY = True
+    print(f"🚀 [Startup Complete] Total startup time: {round((time.time() - t_start)*1000, 2)}ms")
+
+@app.on_event("shutdown")
+async def shutdown_cleanup():
+    global _SHARED_HTTP_CLIENT
+    if _SHARED_HTTP_CLIENT:
+        await _SHARED_HTTP_CLIENT.aclose()
+
+# ── EXPLICIT STATUS & HEALTH ENDPOINTS ──────────────────────────────────────
 @app.get("/health")
 @app.get("/api/health")
 def health(network: Optional[str] = "bradbury"):
-    client = get_client(network)
+    if not _IS_BACKEND_READY:
+        raise HTTPException(status_code=503, detail="Backend warming up. Re-probing dependencies...")
+
+    client = get_singleton_client(network)
     testnet_address = str(client.local_account.address)
-    real_balance = client.get_balance(testnet_address) / 10**18
+    try:
+        real_balance = client.get_balance(testnet_address) / 10**18
+    except Exception:
+        real_balance = 0.0
+
     return {
         "status": "ok",
         "app": "GenSignal",
+        "is_ready": _IS_BACKEND_READY,
         "default_network": "bradbury",
         "active_network": network,
         "testnet_wallet_address": testnet_address,
         "real_wallet_balance_gen": f"{real_balance:.4f}",
         "native_currency": NATIVE_TOKEN_SYMBOL,
-        "coingecko_enabled": bool(COINGECKO_API_KEY),
-        "total_assets_supported": len(COINS_MAP),
-        "groq_llm_enabled": bool(GROQ_API_KEY),
-        "groq_model": GROQ_MODEL,
-        "oracle_contract_exists": CONTRACT_ORACLE.exists(),
-        "treasury_contract_exists": CONTRACT_TREASURY.exists()
+        "startup_metrics": _STARTUP_METRICS
     }
+
+@app.get("/rpc-status")
+@app.get("/api/rpc-status")
+def rpc_status(network: Optional[str] = "bradbury"):
+    if not _IS_BACKEND_READY:
+        raise HTTPException(status_code=503, detail="RPC client warming up")
+    try:
+        client = get_singleton_client(network)
+        addr = str(client.local_account.address)
+        return {
+            "status": "connected",
+            "rpc_url": BRADBURY_RPC_URL,
+            "network": network,
+            "wallet_address": addr,
+            "latency_ms": _STARTUP_METRICS["rpc_connect_ms"]
+        }
+    except Exception as e:
+        raise HTTPException(status_code=503, detail=f"RPC connection error: {e}")
+
+@app.get("/wallet-status")
+@app.get("/api/wallet-status")
+def wallet_status(network: Optional[str] = "bradbury"):
+    if not _IS_BACKEND_READY:
+        raise HTTPException(status_code=503, detail="Wallet warming up")
+    try:
+        client = get_singleton_client(network)
+        addr = str(client.local_account.address)
+        balance = client.get_balance(addr) / 10**18
+        return {
+            "status": "active",
+            "address": addr,
+            "balance_gen": f"{balance:.4f}",
+            "init_latency_ms": _STARTUP_METRICS["wallet_init_ms"]
+        }
+    except Exception as e:
+        raise HTTPException(status_code=503, detail=f"Wallet status error: {e}")
+
+@app.get("/explorer-status")
+@app.get("/api/explorer-status")
+async def explorer_status():
+    try:
+        t0 = time.time()
+        client_http = _SHARED_HTTP_CLIENT or httpx.AsyncClient(timeout=5.0)
+        res = await client_http.get("https://explorer-api.testnet-chain.genlayer.com/docs")
+        t1 = time.time()
+        return {
+            "status": "online" if res.status_code == 200 else "degraded",
+            "explorer_api_url": "https://explorer-api.testnet-chain.genlayer.com",
+            "probe_latency_ms": round((t1 - t0) * 1000, 2)
+        }
+    except Exception as e:
+        raise HTTPException(status_code=503, detail=f"Explorer API offline: {e}")
+
+# ── EXPONENTIAL RETRY FOR TRANSIENT RPC WRITE_CONTRACT CALLS ────────────────
+def execute_write_contract_with_retry(client, address, function_name, args, value=0, max_retries=3):
+    """Executes client.write_contract with exponential retries for transient RPC errors."""
+    last_err = None
+    backoff = 1.0
+
+    for attempt in range(1, max_retries + 1):
+        t0 = time.time()
+        try:
+            w_tx = client.write_contract(
+                address=address,
+                function_name=function_name,
+                args=args,
+                value=value
+            )
+            t1 = time.time()
+            latency_ms = round((t1 - t0) * 1000, 2)
+            print(f"⚡ [RPC write_contract Attempt {attempt}] Executed in {latency_ms}ms -> Tx: {w_tx}")
+            if w_tx:
+                return w_tx, latency_ms
+        except Exception as err:
+            last_err = err
+            print(f"⚠️ [RPC write_contract Attempt {attempt}/{max_retries} Failed]: {err}")
+            if attempt < max_retries:
+                time.sleep(backoff)
+                backoff *= 2.0
+
+    raise last_err or Exception("write_contract returned no transaction hash after retries")
 
 def _format_crypto_price(price: float) -> str:
     if price == 0:
@@ -284,7 +413,7 @@ def pay_for_signal(body: PayRequest):
     pay_tx = None
 
     try:
-        client = get_client(body.network or "bradbury")
+        client = get_singleton_client(body.network or "bradbury")
         user_id = _to_checksum(body.user_identity or TREASURY_ADDRESS)
         treasury_code = CONTRACT_TREASURY.read_text(encoding="utf-8")
 
@@ -298,7 +427,8 @@ def pay_for_signal(body: PayRequest):
                     treasury_addr = str(addr)
 
         if _DEPLOYED_TREASURY_ADDRESS:
-            w_tx = client.write_contract(
+            w_tx, latency_ms = execute_write_contract_with_retry(
+                client=client,
                 address=_DEPLOYED_TREASURY_ADDRESS,
                 function_name="pay_for_signal",
                 args=[user_id, body.pair],
@@ -308,7 +438,7 @@ def pay_for_signal(body: PayRequest):
                 pay_tx = _clean_tx_hash(w_tx)
     except Exception as de:
         print(f"[Treasury Pay Error]: {de}")
-        raise HTTPException(status_code=500, detail=f"GenLayer x402 Micropayment transaction submission failed: {de}")
+        raise HTTPException(status_code=503, detail=f"GenLayer x402 Micropayment RPC connection busy or warming up: {de}")
 
     clean_pay_tx = _clean_tx_hash(pay_tx)
     if not clean_pay_tx:
@@ -471,22 +601,22 @@ Respond STRICTLY with a valid JSON object matching this exact schema — no mark
   "source": "Binance Live Klines & CoinGecko via Groq {GROQ_MODEL}"
 }}
 """
-            async with httpx.AsyncClient(timeout=15.0) as http_client:
-                gr = await http_client.post(
-                    f"{GROQ_BASE_URL}/chat/completions",
-                    headers={"Authorization": f"Bearer {GROQ_API_KEY}"},
-                    json={
-                        "model": GROQ_MODEL,
-                        "messages": [{"role": "user", "content": groq_prompt}],
-                        "response_format": {"type": "json_object"}
-                    }
-                )
-                if gr.status_code == 200:
-                    content = gr.json()["choices"][0]["message"]["content"]
-                    groq_signal = json.loads(content)
-                    groq_signal["pair"] = f"{symbol}/USDT"
-                    groq_signal["strategy"] = body.strategy
-                    groq_signal["user_identity"] = user_identity
+            http_client = _SHARED_HTTP_CLIENT or httpx.AsyncClient(timeout=15.0)
+            gr = await http_client.post(
+                f"{GROQ_BASE_URL}/chat/completions",
+                headers={"Authorization": f"Bearer {GROQ_API_KEY}"},
+                json={
+                    "model": GROQ_MODEL,
+                    "messages": [{"role": "user", "content": groq_prompt}],
+                    "response_format": {"type": "json_object"}
+                }
+            )
+            if gr.status_code == 200:
+                content = gr.json()["choices"][0]["message"]["content"]
+                groq_signal = json.loads(content)
+                groq_signal["pair"] = f"{symbol}/USDT"
+                groq_signal["strategy"] = body.strategy
+                groq_signal["user_identity"] = user_identity
         except Exception as ge:
             print(f"[Groq Note]: {ge}")
 
@@ -496,7 +626,7 @@ Respond STRICTLY with a valid JSON object matching this exact schema — no mark
     signal_report = None
 
     try:
-        client = get_client(network)
+        client = get_singleton_client(network)
         code = CONTRACT_ORACLE.read_text(encoding="utf-8")
         deploy_tx = client.deploy_contract(
             code=code,
@@ -506,19 +636,20 @@ Respond STRICTLY with a valid JSON object matching this exact schema — no mark
         ca = receipt.get("contract_address") or receipt.get("to")
         if ca:
             contract_address = str(ca)
-            write_tx = client.write_contract(
+            w_tx, latency_ms = execute_write_contract_with_retry(
+                client=client,
                 address=ca,
                 function_name="evaluate_signal",
                 args=[market_summary, payment_tx]
             )
-            if write_tx:
-                tx_hash = _clean_tx_hash(write_tx)
+            if w_tx:
+                tx_hash = _clean_tx_hash(w_tx)
             signal_report = groq_signal
             if signal_report:
                 signal_report["user_identity"] = user_identity
     except Exception as ge:
         print(f"[Oracle Execution Error]: {ge}")
-        raise HTTPException(status_code=500, detail=f"GenLayer Oracle Consensus transaction submission failed: {ge}")
+        raise HTTPException(status_code=503, detail=f"GenLayer Oracle Consensus RPC connection busy or warming up: {ge}")
 
     clean_tx_hash = _clean_tx_hash(tx_hash)
     if not clean_tx_hash:
