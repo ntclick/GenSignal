@@ -68,10 +68,12 @@ const PRESET_COINS = [
   { sym: 'ARB', pair: 'ARB/USDT', name: 'Arbitrum', price: '$0.4800', change: '-2.06%' }
 ]
 
+const RENDER_BACKEND_URL = 'https://gensignal.onrender.com'
+
 const getSanitizedBackendUrl = (url) => {
-  if (!url || typeof url !== 'string') return 'http://localhost:8001'
+  if (!url || typeof url !== 'string') return RENDER_BACKEND_URL
   const trimmed = url.trim().replace(/\/$/, '')
-  if (!trimmed || trimmed.includes('vercel.app')) return 'http://localhost:8001'
+  if (!trimmed || trimmed.includes('vercel.app')) return RENDER_BACKEND_URL
   return trimmed
 }
 
