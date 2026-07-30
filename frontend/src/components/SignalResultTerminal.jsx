@@ -3,6 +3,7 @@ import {
   ShieldCheck, TrendingUp, TrendingDown, AlertTriangle, ArrowRight,
   ExternalLink, Copy, Check, X, ChevronDown, ChevronUp, Sparkles, Activity, Layers, Zap
 } from 'lucide-react'
+import { TradingViewLightweightChart } from './TradingViewLightweightChart'
 
 export const SignalResultTerminal = ({
   signalReport,
@@ -21,8 +22,8 @@ export const SignalResultTerminal = ({
   const isLong = signalReport.verdict?.toUpperCase().includes('LONG')
   const isShort = signalReport.verdict?.toUpperCase().includes('SHORT')
 
-  // Parse or estimate price & targets
-  const rawPriceStr = (signalReport.current_price || '64484.00').toString().replace(/[^0-9.]/g, '')
+  // Parse or estimate price & targets from structured schema
+  const rawPriceStr = (signalReport.trade?.entry || signalReport.current_price || '64484.00').toString().replace(/[^0-9.]/g, '')
   const currentPrice = parseFloat(rawPriceStr) || 64484.0
 
   const formatUsd = (val) => {
@@ -31,11 +32,12 @@ export const SignalResultTerminal = ({
     return `$${val.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
   }
 
-  // Calculated Trading Targets
-  const entryPrice = currentPrice
-  const tpPrice = isLong ? currentPrice * 1.057 : isShort ? currentPrice * 0.943 : currentPrice * 1.03
-  const slPrice = isLong ? currentPrice * 0.978 : isShort ? currentPrice * 1.022 : currentPrice * 0.985
-  const rrRatio = '1 : 2.60'
+  // Calculated Trading Targets from AI output schema
+  const entryPrice = signalReport.trade?.entry || currentPrice
+  const tpPrice = signalReport.trade?.takeProfit || (isLong ? currentPrice * 1.057 : isShort ? currentPrice * 0.943 : currentPrice * 1.03)
+  const slPrice = signalReport.trade?.stopLoss || (isLong ? currentPrice * 0.978 : isShort ? currentPrice * 1.022 : currentPrice * 0.985)
+  const rrRatio = signalReport.trade?.riskReward ? `1 : ${signalReport.trade.riskReward}` : '1 : 2.60'
+  const chartOverlays = signalReport.chart?.overlays || []
 
   const copyAnalysisToClipboard = () => {
     const text = `🎯 GenSignal Trading Terminal
@@ -232,47 +234,14 @@ On-Chain Proof: ${txHash ? `${explorerUrl}/tx/${txHash}` : 'GenLayer Bradbury Te
             </div>
           </div>
 
-          {/* ── 3. VISUAL PRICE TARGETS CANVAS (Bloomberg Terminal Aesthetic) ──── */}
-          <div
-            style={{
-              background: '#09090B',
-              border: '1px solid rgba(255,255,255,0.08)',
-              borderRadius: 18,
-              padding: 20,
-              marginBottom: 24
-            }}
-          >
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
-              <span style={{ fontSize: 12, fontWeight: 700, fontFamily: 'var(--font-mono)', color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', gap: 6 }}>
-                <Activity size={14} color="#3b82f6" /> VISUAL PRICE EXECUTION BOUNDARIES
-              </span>
-              <span style={{ fontSize: 11, fontFamily: 'var(--font-mono)', color: 'var(--text-muted)' }}>
-                GenVM Consensus Engine: {signalReport.confidence}% Match
-              </span>
-            </div>
-
-            <div style={{ position: 'relative', height: 72, background: 'rgba(255,255,255,0.02)', borderRadius: 12, border: '1px solid rgba(255,255,255,0.05)', padding: '0 20px', display: 'flex', alignItems: 'center' }}>
-              {/* Range Line */}
-              <div style={{ position: 'absolute', left: '10%', right: '10%', height: 4, background: 'linear-gradient(90deg, #f43f5e 0%, #3b82f6 45%, #10b981 100%)', borderRadius: 2 }} />
-
-              {/* SL Marker */}
-              <div style={{ position: 'absolute', left: '10%', transform: 'translateX(-50%)', textAlign: 'center' }}>
-                <div style={{ width: 12, height: 12, borderRadius: '50%', background: '#f43f5e', border: '2px solid #09090B', margin: '0 auto' }} />
-                <div style={{ fontSize: 10, fontFamily: 'var(--font-mono)', color: '#f43f5e', fontWeight: 800, marginTop: 4 }}>SL {formatUsd(slPrice)}</div>
-              </div>
-
-              {/* Entry Marker */}
-              <div style={{ position: 'absolute', left: '45%', transform: 'translateX(-50%)', textAlign: 'center' }}>
-                <div style={{ width: 14, height: 14, borderRadius: '50%', background: '#3b82f6', border: '2px solid #fff', margin: '0 auto', boxShadow: '0 0 10px #3b82f6' }} />
-                <div style={{ fontSize: 11, fontFamily: 'var(--font-mono)', color: '#fff', fontWeight: 800, marginTop: 4 }}>ENTRY {formatUsd(entryPrice)}</div>
-              </div>
-
-              {/* TP Marker */}
-              <div style={{ position: 'absolute', left: '90%', transform: 'translateX(-50%)', textAlign: 'center' }}>
-                <div style={{ width: 12, height: 12, borderRadius: '50%', background: '#10b981', border: '2px solid #09090B', margin: '0 auto' }} />
-                <div style={{ fontSize: 10, fontFamily: 'var(--font-mono)', color: '#10b981', fontWeight: 800, marginTop: 4 }}>TP {formatUsd(tpPrice)}</div>
-              </div>
-            </div>
+          {/* ── 3. TRADINGVIEW LIGHTWEIGHT CHARTS ENGINE (Interactive Visual Center) ── */}
+          <div style={{ marginBottom: 24 }}>
+            <TradingViewLightweightChart
+              symbol={signalReport.signal?.symbol || signalReport.pair?.replace('/', '') || 'BTCUSDT'}
+              currentPrice={entryPrice}
+              overlays={chartOverlays}
+              tradeData={{ entry: entryPrice, takeProfit: tpPrice, stopLoss: slPrice }}
+            />
           </div>
 
           {/* ── 4. AI KEY DRIVERS (Concise Cards) ──────────────────────────── */}

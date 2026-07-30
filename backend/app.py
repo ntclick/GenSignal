@@ -381,7 +381,7 @@ async def evaluate_signal(body: EvaluateRequest):
         try:
             groq_prompt = f"""
 You are a Senior Quantitative Crypto Trading Desk Head & Market Analyst.
-Analyze the following market indicators and produce an elite trading verdict.
+Analyze the following market indicators and produce an elite trading verdict with structured chart overlays.
 
 Symbol: {symbol}/USDT
 Execution Timeframe: {timeframe.upper()}
@@ -389,17 +389,57 @@ Strategy Engine: {body.strategy}
 Market Technical Metrics:
 {market_summary}
 
-Respond STRICTLY with a valid JSON object matching this schema — no markdown, no conversational prose:
+Respond STRICTLY with a valid JSON object matching this exact schema — no markdown formatting:
 {{
+  "signal": {{
+    "symbol": "{symbol}USDT",
+    "direction": "LONG|SHORT|NEUTRAL|SKIP",
+    "confidence": <int 0-100>,
+    "timeframe": "{timeframe.upper()}"
+  }},
+  "trade": {{
+    "entry": {last_price if 'last_price' in locals() else 64484},
+    "takeProfit": <float target price>,
+    "stopLoss": <float stop loss price>,
+    "riskReward": 2.6
+  }},
+  "reasoning": {{
+    "summary": "<Concise 1-sentence executive summary>",
+    "support": [
+      "<Data-backed point 1 citing specific technical indicators>",
+      "<Data-backed point 2 citing market structure levels>"
+    ],
+    "counter": "<Key risk factor or opposing market force>",
+    "invalidation": "<Precise price condition that voids this setup>"
+  }},
+  "metrics": {{
+    "trend": "Bullish|Bearish|Neutral",
+    "rsi": {rsi_14 if 'rsi_14' in locals() else 55},
+    "macd": "Bullish Cross|Bearish Divergence|Neutral",
+    "volume": "High|Medium|Low",
+    "volatility": "High|Medium|Low"
+  }},
+  "chart": {{
+    "timeframe": "{timeframe.upper()}",
+    "overlays": [
+      {{ "type": "entry", "price": {last_price if 'last_price' in locals() else 64484} }},
+      {{ "type": "tp", "price": <float tp price> }},
+      {{ "type": "sl", "price": <float sl price> }},
+      {{ "type": "ema", "period": 20 }},
+      {{ "type": "ema", "period": 50 }},
+      {{ "type": "ema", "period": 200 }},
+      {{ "type": "marker", "title": "EMA Cross", "description": "Bullish confluence at key demand level", "price": {last_price if 'last_price' in locals() else 64484} }}
+    ]
+  }},
   "verdict": "Long|Short|Neutral|Skip",
   "confidence": <int 0-100>,
-  "expert_summary": "<A sharp 2-sentence executive verdict written as a Senior Crypto Quant Desk Head citing exact data points like RSI, RVOL, Trend %, or Bollinger Bands>",
+  "expert_summary": "<A sharp 2-sentence executive verdict written as a Senior Crypto Quant Desk Head>",
   "supporting": [
-    "<Data-backed point 1 citing specific metrics>",
-    "<Data-backed point 2 citing specific structural levels>"
+    "<Data-backed point 1>",
+    "<Data-backed point 2>"
   ],
-  "counterpoint": "<Key risk factor or opposing market force>",
-  "invalidation": "<Precise price condition or metric trigger that voids this setup>",
+  "counterpoint": "<Key risk factor>",
+  "invalidation": "<Precise price condition>",
   "source": "Binance Live Klines & CoinGecko via Groq {GROQ_MODEL}"
 }}
 """
