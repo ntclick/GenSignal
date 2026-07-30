@@ -88,17 +88,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-@app.options("/{full_path:path}")
-def options_handler(full_path: str):
-    from fastapi.responses import JSONResponse
-    return JSONResponse(
-        content={"status": "ok"},
-        headers={
-            "Access-Control-Allow-Origin": "*",
-            "Access-Control-Allow-Methods": "*",
-            "Access-Control-Allow-Headers": "*",
-        }
-    )
+
 
 class EvaluateRequest(BaseModel):
     symbol: str
@@ -450,7 +440,7 @@ def pay_for_signal(body: PayRequest):
             pay_tx = _clean_tx_hash(w_tx)
     except Exception as de:
         print(f"[Treasury Pay Error]: {de}")
-        raise HTTPException(status_code=503, detail=f"GenLayer x402 Micropayment RPC connection busy or warming up: {de}")
+        raise HTTPException(status_code=500, detail=f"GenLayer x402 Micropayment transaction failed: {de}")
 
     clean_pay_tx = _clean_tx_hash(pay_tx)
     if not clean_pay_tx:
@@ -670,7 +660,7 @@ Respond STRICTLY with a valid JSON object matching this exact schema — no mark
                 signal_report["user_identity"] = user_identity
     except Exception as ge:
         print(f"[Oracle Execution Error]: {ge}")
-        raise HTTPException(status_code=503, detail=f"GenLayer Oracle Consensus RPC connection busy or warming up: {ge}")
+        raise HTTPException(status_code=500, detail=f"GenLayer Oracle Consensus transaction failed: {ge}")
 
     clean_tx_hash = _clean_tx_hash(tx_hash)
     if not clean_tx_hash:
