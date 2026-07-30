@@ -452,7 +452,7 @@ def _is_valid_contract_address(addr: str) -> bool:
 
 def _resolve_contract_address_from_rpc_sync(tx_hash: str, max_attempts: int = 30, delay: int = 2) -> Optional[str]:
     """
-    Query the GenLayer Node RPC directly (gen_getTransactionReceipt) to resolve
+    Query the GenLayer Node RPC directly (via SDK client or RPC endpoint) to resolve
     the actual 42-char contract address (recipient field) from a deployment tx hash.
 
     The Node RPC indexes the transaction immediately upon submission — unlike the
@@ -463,44 +463,56 @@ def _resolve_contract_address_from_rpc_sync(tx_hash: str, max_attempts: int = 30
     """
     import time as _time
 
-    # Primary: GenLayer Node RPC (immediate indexing)
-    rpc_url = "https://testnet-rpc.genlayer.foundation"
-    rpc_payload = {
-        "jsonrpc": "2.0",
-        "method": "gen_getTransactionReceipt",
-        "params": [tx_hash],
-        "id": 1
-    }
+    tx_clean = str(tx_hash).strip()
 
     for attempt in range(1, max_attempts + 1):
-        # ── 1. Try GenLayer Node RPC ──────────────────────────────────────────
+        # ── 1. Try SDK Singleton Client ──────────────────────────────────────
         try:
-            resp = httpx.post(rpc_url, json=rpc_payload, timeout=10.0)
-            if resp.status_code == 200:
-                body = resp.json()
-                result = body.get("result") or {}
-                if isinstance(result, dict):
-                    recipient = (
-                        result.get("recipient") or
-                        result.get("contract_address") or
-                        result.get("contractAddress") or
-                        result.get("to")
-                    )
-                    if _is_valid_contract_address(recipient):
-                        print(f"  ✅ [RPC Resolve #{attempt}] Contract address: {recipient}")
-                        return str(recipient)
-                    status_name = result.get("status_name") or result.get("status", "?")
-                    print(f"  [RPC Resolve #{attempt}/{max_attempts}] recipient not yet valid (status={status_name}): {recipient!r}")
-                else:
-                    print(f"  [RPC Resolve #{attempt}/{max_attempts}] result not a dict: {str(result)[:80]}")
-            else:
-                print(f"  [RPC Resolve #{attempt}/{max_attempts}] RPC HTTP {resp.status_code}")
-        except Exception as e:
-            print(f"  [RPC Resolve #{attempt}/{max_attempts}] RPC error: {e}")
+            client = get_singleton_client("bradbury")
+            if hasattr(client, "get_transaction_receipt"):
+                receipt = client.get_transaction_receipt(tx_clean)
+                addr = _extract_contract_address(receipt)
+                if _is_valid_contract_address(addr):
+                    print(f"  ✅ [SDK Resolve #{attempt}] Contract address: {addr}")
+                    return str(addr)
+            if hasattr(client, "get_transaction"):
+                tx_obj = client.get_transaction(tx_clean)
+                addr = _extract_contract_address(tx_obj)
+                if _is_valid_contract_address(addr):
+                    print(f"  ✅ [SDK Resolve #{attempt}] Contract address: {addr}")
+                    return str(addr)
+        except Exception as sdk_err:
+            pass
 
-        # ── 2. Fallback: Try Explorer API ─────────────────────────────────────
+        # ── 2. Try Direct RPC HTTP Call to BRADBURY_RPC_URL ──────────────────
+        rpc_url = BRADBURY_RPC_URL
+        for method, params in [
+            ("gen_getTransactionReceipt", [tx_clean]),
+            ("gen_getTransactionReceipt", [{"tx_id": tx_clean}]),
+            ("gen_getTransaction", [tx_clean]),
+        ]:
+            try:
+                payload = {"jsonrpc": "2.0", "method": method, "params": params, "id": 1}
+                resp = httpx.post(rpc_url, json=payload, timeout=8.0)
+                if resp.status_code == 200:
+                    body = resp.json()
+                    result = body.get("result") or {}
+                    if isinstance(result, dict):
+                        recipient = (
+                            result.get("recipient") or
+                            result.get("contract_address") or
+                            result.get("contractAddress") or
+                            result.get("to")
+                        )
+                        if _is_valid_contract_address(recipient):
+                            print(f"  ✅ [RPC Resolve #{attempt}] Contract address: {recipient}")
+                            return str(recipient)
+            except Exception as rpc_err:
+                pass
+
+        # ── 3. Fallback: Try Explorer API ─────────────────────────────────────
         try:
-            ex_url = f"https://explorer-api.testnet-chain.genlayer.com/api/v2/transactions/{tx_hash}"
+            ex_url = f"https://explorer-api.testnet-chain.genlayer.com/api/v2/transactions/{tx_clean}"
             ex_resp = httpx.get(ex_url, timeout=8.0)
             if ex_resp.status_code == 200:
                 data = ex_resp.json()
