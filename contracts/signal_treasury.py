@@ -6,15 +6,16 @@ class SignalTreasury(gl.Contract):
     """
     GenLayer x402 Micropayment Treasury Intelligent Contract.
     Manages native GEN fee collection for GenSignal trading oracle queries.
+    Restricts withdrawal privileges strictly to the contract admin/owner.
     """
 
-    owner: str
+    owner: Address
     total_collected: u32
     user_balances: TreeMap[str, u32]
     paid_queries: TreeMap[str, bool]
 
     def __init__(self, owner_address: str = ""):
-        self.owner = owner_address
+        self.owner = Address(owner_address) if owner_address else gl.message.sender_address
         self.total_collected = u32(0)
         self.user_balances = TreeMap()
         self.paid_queries = TreeMap()
@@ -60,12 +61,18 @@ class SignalTreasury(gl.Contract):
     def get_treasury_info(self) -> dict:
         """Returns total collected native GEN fees and contract owner."""
         return {
-            "owner": self.owner,
+            "owner": str(self.owner),
             "native_currency": "GEN",
             "total_collected": int(self.total_collected)
         }
 
     @gl.public.write
-    def withdraw(self, recipient: str) -> None:
-        """Allows treasury owner to withdraw accumulated funds."""
+    def withdraw(self, recipient: str = "") -> None:
+        """
+        Allows ONLY the contract admin/owner to withdraw accumulated funds.
+        Raises gl.vm.UserError if caller is not the contract owner.
+        """
+        if gl.message.sender_address != self.owner:
+            raise gl.vm.UserError(f"Unauthorized: Only contract owner ({self.owner}) can withdraw funds")
+
         self.total_collected = u32(0)
