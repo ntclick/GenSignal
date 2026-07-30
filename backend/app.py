@@ -166,8 +166,7 @@ async def startup_warmup():
             treasury_code = CONTRACT_TREASURY.read_text(encoding="utf-8")
             deploy_tx = client.deploy_contract(code=treasury_code, args=[user_id])
             if deploy_tx:
-                deploy_receipt = client.wait_for_transaction_receipt(deploy_tx)
-                _DEPLOYED_TREASURY_ADDRESS = _extract_contract_address(deploy_receipt, deploy_tx)
+                _DEPLOYED_TREASURY_ADDRESS = str(deploy_tx)
             print(f"📜 [Startup Treasury Contract Initialized]: {_DEPLOYED_TREASURY_ADDRESS}")
     except Exception as te:
         print(f"⚠️ [Startup Treasury Contract Note]: {te}")
@@ -454,27 +453,12 @@ def pay_for_signal(body: PayRequest):
                 treasury_code = CONTRACT_TREASURY.read_text(encoding="utf-8")
                 deploy_tx = client.deploy_contract(code=treasury_code, args=[user_id])
                 if deploy_tx:
-                    deploy_receipt = client.wait_for_transaction_receipt(deploy_tx)
-                    extracted_addr = _extract_contract_address(deploy_receipt)
-                    if extracted_addr:
-                        _DEPLOYED_TREASURY_ADDRESS = extracted_addr
+                    _DEPLOYED_TREASURY_ADDRESS = str(deploy_tx)
                     print(f"📜 [SignalTreasury Contract Deployed]: {_DEPLOYED_TREASURY_ADDRESS}")
             except Exception as dep_err:
                 print(f"[Treasury Deploy Note]: {dep_err}")
 
-        target_contract = _DEPLOYED_TREASURY_ADDRESS
-        if not target_contract or not target_contract.startswith("0x") or len(target_contract) != 42:
-            # Re-attempt deployment inline if initial deployment wasn't cached
-            treasury_code = CONTRACT_TREASURY.read_text(encoding="utf-8")
-            deploy_tx = client.deploy_contract(code=treasury_code, args=[user_id])
-            deploy_receipt = client.wait_for_transaction_receipt(deploy_tx)
-            target_contract = _extract_contract_address(deploy_receipt)
-            if target_contract:
-                _DEPLOYED_TREASURY_ADDRESS = target_contract
-
-        if not target_contract:
-            raise RuntimeError("SignalTreasury Intelligent Contract deployment failed on GenLayer RPC")
-
+        target_contract = _DEPLOYED_TREASURY_ADDRESS or TREASURY_ADDRESS
         w_tx, latency_ms = execute_write_contract_with_retry(
             client=client,
             address=target_contract,
@@ -680,14 +664,11 @@ Respond STRICTLY with a valid JSON object matching this exact schema — no mark
             code=code,
             args=[symbol, f"{symbol}/USDT", body.strategy, user_identity]
         )
-        receipt = client.wait_for_transaction_receipt(deploy_tx)
-        ca = _extract_contract_address(receipt)
-
-        if ca:
-            contract_address = str(ca)
+        if deploy_tx:
+            contract_address = str(deploy_tx)
             w_tx, latency_ms = execute_write_contract_with_retry(
                 client=client,
-                address=ca,
+                address=contract_address,
                 function_name="evaluate_signal",
                 args=[market_summary, payment_tx]
             )
