@@ -492,7 +492,7 @@ function GenSignalAppContent() {
             strategy: stratObj.label,
             timeframe: selectedTimeframe,
             network: activeNetwork,
-            user_identity: activeAddress,
+            user_identity: signingWalletAddr || currentAddress || activeAddress,
             payment_tx: treasuryTxHash,
             user_signature: userSig || '0x_env_wallet_auto'
           })
