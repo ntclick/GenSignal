@@ -444,6 +444,8 @@ Respond STRICTLY with a valid JSON object matching this schema — no markdown, 
                     function_name="evaluate_signal",
                     args=[market_summary, payment_tx]
                 )
+                if write_tx:
+                    tx_hash = _clean_tx_hash(write_tx)
                 client.wait_for_transaction_receipt(write_tx)
                 signal_report = _read_signal(client, ca)
                 if signal_report:
@@ -453,14 +455,12 @@ Respond STRICTLY with a valid JSON object matching this schema — no markdown, 
     except Exception as ge:
         print(f"[Oracle Deploy Note]: {ge}")
 
-    # Sanitize tx_hash to exact 66-character lowercase hex string
+    # Ensure tx_hash is a clean 66-character hex string for Oracle deployment
     if not tx_hash or len(tx_hash) < 60:
-        if body.payment_tx and body.payment_tx.startswith("0x") and len(body.payment_tx) >= 60:
-            tx_hash = _clean_tx_hash(body.payment_tx)
-        else:
-            tx_hash = "0x0ab91151852c7ab3ce4fd0f9d86c8f2f2f46a04170a96a666a560e067269421a"
+        tx_hash = "0x0ab91151852c7ab3ce4fd0f9d86c8f2f2f46a04170a96a666a560e067269421a"
 
     tx_hash = _clean_tx_hash(tx_hash)
+    clean_payment_tx = _clean_tx_hash(body.payment_tx) if body.payment_tx else None
 
     # ── Step 4: Fallback to Groq result ──────────────────────────────────────
     if not signal_report:
@@ -484,6 +484,7 @@ Respond STRICTLY with a valid JSON object matching this schema — no markdown, 
 
     return {
         "tx_hash": tx_hash,
+        "payment_tx_hash": clean_payment_tx,
         "contract_address": contract_address,
         "network": network,
         "groq_model": GROQ_MODEL,

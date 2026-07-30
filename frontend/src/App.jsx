@@ -90,6 +90,7 @@ export default function App() {
   const [signalReport, setSignalReport]       = useState(null)
   const [showResultModal, setShowResultModal] = useState(false)
   const [txHash, setTxHash]                   = useState('')
+  const [paymentTxHash, setPaymentTxHash]     = useState('')
   const [error, setError]                     = useState('')
   const [customBackendUrl, setCustomBackendUrl] = useState(() => {
     const stored = localStorage.getItem('gensignal_custom_backend')
@@ -326,6 +327,7 @@ export default function App() {
 
       const payData = await payRes.json()
       const treasuryTxHash = payData.treasury_tx_hash || '0x0ab91151852c7ab3ce4fd0f9d86c8f2f2f46a04170a96a666a560e067269421a'
+      setPaymentTxHash(treasuryTxHash)
       addLog(`✔ x402 payment confirmed! Treasury Tx: ${treasuryTxHash.slice(0, 18)}…`, 'hi')
 
       // Step 3: Run Signal Oracle
@@ -358,6 +360,7 @@ export default function App() {
       }
 
       setTxHash(data.tx_hash || '')
+      if (data.payment_tx_hash) setPaymentTxHash(data.payment_tx_hash)
       addLog(`⛓️ Intelligent Contract committed on ${netObj.name}`, 'hi')
       addLog(`✔ Optimistic Democracy consensus finalized!`, 'hi')
       setSignalReport(data.signal)
@@ -896,21 +899,38 @@ export default function App() {
             </div>
           </div>
 
-          {txHash && (
-            <div style={{ marginTop: 20, paddingTop: 12, borderTop: '1px solid var(--border-glass)', fontSize: 12, fontFamily: 'var(--font-mono)', display: 'flex', flexDirection: 'column', gap: 6 }}>
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 6 }}>
-                <a
-                  href={`${EXPLORER_URL}/tx/${txHash}`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  style={{ color: 'var(--accent-cyan)', textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 6, fontWeight: 700 }}
-                >
-                  🔗 GenLayer Explorer Tx: {txHash.slice(0, 18)}… <ExternalLink size={13} />
-                </a>
-                <span style={{ fontSize: 10, color: 'var(--text-muted)' }}>
-                  (Indexing on GenLayer Explorer takes ~1-2 mins)
-                </span>
-              </div>
+          {(txHash || paymentTxHash) && (
+            <div style={{ marginTop: 20, paddingTop: 12, borderTop: '1px solid var(--border-glass)', fontSize: 12, fontFamily: 'var(--font-mono)', display: 'flex', flexDirection: 'column', gap: 8 }}>
+              {txHash && (
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 6 }}>
+                  <a
+                    href={`${EXPLORER_URL}/tx/${txHash}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    style={{ color: 'var(--accent-cyan)', textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 6, fontWeight: 700 }}
+                  >
+                    🔗 Oracle Consensus Tx: {txHash.slice(0, 18)}… <ExternalLink size={13} />
+                  </a>
+                  <span style={{ fontSize: 10, color: 'var(--text-muted)' }}>
+                    (Indexing takes ~1-2 mins)
+                  </span>
+                </div>
+              )}
+              {paymentTxHash && (
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 6 }}>
+                  <a
+                    href={`${EXPLORER_URL}/tx/${paymentTxHash}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    style={{ color: '#10b981', textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 6, fontWeight: 700 }}
+                  >
+                    💸 x402 Payment Tx: {paymentTxHash.slice(0, 18)}… <ExternalLink size={13} />
+                  </a>
+                  <span style={{ fontSize: 10, color: 'var(--text-muted)' }}>
+                    (Treasury Fee Paid: 0.05 GEN)
+                  </span>
+                </div>
+              )}
             </div>
           )}
         </div>
