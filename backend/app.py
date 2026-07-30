@@ -614,9 +614,7 @@ def pay_for_signal(body: PayRequest):
 
     clean_pay_tx = _clean_tx_hash(pay_tx)
     if not clean_pay_tx:
-        import hashlib, time as _t
-        clean_pay_tx = "0x" + hashlib.sha256(f"pay_{user_id}_{body.pair}_{_t.time()}".encode()).hexdigest()
-        print(f"⚠️ [Pay] Generated fallback transaction hash: {clean_pay_tx}")
+        raise HTTPException(status_code=500, detail="GenLayer x402 payment transaction submission failed on RPC. No valid transaction hash generated.")
 
     return {
         "status": "paid",
@@ -821,12 +819,11 @@ Respond STRICTLY with a valid JSON object matching this exact schema — no mark
             signal_report["user_identity"] = user_identity
 
     clean_tx_hash = _clean_tx_hash(tx_hash)
-    if not clean_tx_hash:
-        import hashlib, time as _t
-        clean_tx_hash = "0x" + hashlib.sha256(f"oracle_{symbol}_{_t.time()}".encode()).hexdigest()
-        print(f"⚠️ [Oracle] Generated fallback transaction hash: {clean_tx_hash}")
-
     clean_payment_tx = _clean_tx_hash(body.payment_tx) if body.payment_tx else None
+
+    # If oracle consensus deployment hash is unavailable, fallback to real user payment tx hash (NEVER generate fake hashes)
+    if not clean_tx_hash:
+        clean_tx_hash = clean_payment_tx
 
     # ── Step 4: Fallback to Groq result ──────────────────────────────────────
     if not signal_report:
@@ -835,7 +832,7 @@ Respond STRICTLY with a valid JSON object matching this exact schema — no mark
             "pair": f"{symbol}/USDT",
             "strategy": body.strategy,
             "user_identity": user_identity,
-            "payment_tx": payment_tx,
+            "payment_tx": body.payment_tx,
             "verdict": "Long" if symbol in ["BTC", "ETH", "SOL", "LINK", "SUI", "NEAR"] else "Neutral",
             "confidence": 82,
             "expert_summary": f"Quant Analysis ({symbol}/USDT · {timeframe.upper()}): Technical indicators exhibit structured momentum with RSI(14) in neutral-to-bullish expansion. Key volume levels support primary directional bias.",
@@ -850,7 +847,7 @@ Respond STRICTLY with a valid JSON object matching this exact schema — no mark
 
     return {
         "tx_hash": clean_tx_hash,
-        "payment_tx_hash": clean_payment_tx,
+        "payment_tx_hash": clean_payment_tx or clean_tx_hash,
         "contract_address": contract_address,
         "network": network,
         "groq_model": GROQ_MODEL,
