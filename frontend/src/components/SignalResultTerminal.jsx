@@ -13,7 +13,7 @@ export const SignalResultTerminal = ({
   selectedTimeframe = '4h',
   onClose,
   onExecuteAnother,
-  explorerUrl = 'https://explorer.testnet-chain.genlayer.com'
+  explorerUrl = 'https://explorer.genlayer.fastnode.io'
 }) => {
   const [showReasoning, setShowReasoning] = useState(false)
   const [copied, setCopied]               = useState(false)

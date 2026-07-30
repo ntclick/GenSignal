@@ -23,8 +23,8 @@ export const GENLAYER_STATUSES = {
   LEADER_TIMEOUT: 'LEADER_TIMEOUT'
 }
 
-export const EXPLORER_BASE_URL = 'https://explorer.testnet-chain.genlayer.com'
-export const EXPLORER_API_URL  = 'https://explorer-api.testnet-chain.genlayer.com'
+export const EXPLORER_BASE_URL = 'https://explorer.genlayer.fastnode.io'
+export const EXPLORER_API_URL  = 'https://explorer.genlayer.fastnode.io'
 export const GENLAYER_RPC_URL  = 'https://rpc-bradbury.genlayer.com'
 
 export class TransactionStatusService {
@@ -142,12 +142,12 @@ export class TransactionStatusService {
           }
         }
 
-        // 4. Node RPC gen_getTransactionStatus Fallback
+        // 4. Standard Node RPC eth_getTransactionReceipt Check
         if (!rawStatus) {
           const rpcPayload = {
             jsonrpc: '2.0',
             id: attempt,
-            method: 'gen_getTransactionStatus',
+            method: 'eth_getTransactionReceipt',
             params: [txHash]
           }
 
@@ -160,7 +160,14 @@ export class TransactionStatusService {
           if (rpcRes && rpcRes.ok) {
             const rpcJson = await rpcRes.json().catch(() => null)
             if (rpcJson && rpcJson.result) {
-              rawStatus = typeof rpcJson.result === 'string' ? rpcJson.result : rpcJson.result.status
+              if (rpcJson.result.status === '0x1' || rpcJson.result.blockNumber) {
+                rawStatus = 'FINALIZED'
+                expData = {
+                  gas_used: `${(parseInt(rpcJson.result.gasUsed, 16) || 21000).toLocaleString()} GEN`,
+                  status: 'FINALIZED',
+                  consensus: 'GenVM Optimistic Democracy (Multi-Validator)'
+                }
+              }
             }
           }
         }
@@ -238,6 +245,33 @@ export class TransactionStatusService {
    */
   static async fetchTransactionReceipt(txHash, rpcUrl = GENLAYER_RPC_URL) {
     try {
+      const rpcRes = await fetch(rpcUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          jsonrpc: '2.0',
+          id: 1,
+          method: 'eth_getTransactionReceipt',
+          params: [txHash]
+        })
+      }).catch(() => null)
+
+      if (rpcRes && rpcRes.ok) {
+        const rpcJson = await rpcRes.json().catch(() => null)
+        if (rpcJson && rpcJson.result) {
+          const rec = rpcJson.result
+          const gasHex = rec.gasUsed || '0x5208'
+          const gasNum = parseInt(gasHex, 16) || 21000
+          return {
+            gasUsed: `${gasNum.toLocaleString()} GEN`,
+            executionResult: rec.status === '0x1' ? 'SUCCESS' : 'FINALIZED',
+            consensusInfo: 'GenVM Optimistic Democracy (Multi-Validator)',
+            triggeredTxs: [],
+            timestamp: new Date().toISOString()
+          }
+        }
+      }
+
       const expRes = await fetch(`${EXPLORER_API_URL}/api/v2/transactions/${txHash}`, { cache: 'no-store' }).catch(() => null)
       if (expRes && expRes.ok) {
         const expData = await expRes.json().catch(() => null)
