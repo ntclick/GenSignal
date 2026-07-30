@@ -8,8 +8,6 @@
 
 - 🚀 **Live Frontend dApp (Vercel)**: [https://gensignal.vercel.app](https://gensignal.vercel.app)
 - ⚡ **Live Backend API (Render Cloud 24/7)**: [https://gensignal.onrender.com](https://gensignal.onrender.com)
-- 📦 **GitHub Repository (quicklyreviews)**: [https://github.com/quicklyreviews/genSignal](https://github.com/quicklyreviews/genSignal)
-- 📦 **GitHub Repository (ntclick)**: [https://github.com/ntclick/GenSignal](https://github.com/ntclick/GenSignal)
 - ⛓️ **GenLayer Testnet Explorer**: [https://explorer.testnet-chain.genlayer.com](https://explorer.testnet-chain.genlayer.com)
 
 ---
