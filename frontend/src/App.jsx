@@ -466,7 +466,6 @@ export default function App() {
                 <Wallet size={15} /> Connect MetaMask
               </button>
             )}
-          </div>
         </div>
       </header>
 
