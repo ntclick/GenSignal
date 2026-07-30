@@ -897,15 +897,20 @@ export default function App() {
           </div>
 
           {txHash && (
-            <div style={{ marginTop: 20, paddingTop: 12, borderTop: '1px solid var(--border-glass)', fontSize: 12, fontFamily: 'var(--font-mono)' }}>
-              <a
-                href={`${EXPLORER_URL}/tx/${txHash}`}
-                target="_blank"
-                rel="noopener noreferrer"
-                style={{ color: 'var(--accent-cyan)', textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 6, fontWeight: 700 }}
-              >
-                🔗 GenLayer Explorer Tx: {txHash.slice(0, 18)}… <ExternalLink size={13} />
-              </a>
+            <div style={{ marginTop: 20, paddingTop: 12, borderTop: '1px solid var(--border-glass)', fontSize: 12, fontFamily: 'var(--font-mono)', display: 'flex', flexDirection: 'column', gap: 6 }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 6 }}>
+                <a
+                  href={`${EXPLORER_URL}/tx/${txHash}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  style={{ color: 'var(--accent-cyan)', textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 6, fontWeight: 700 }}
+                >
+                  🔗 GenLayer Explorer Tx: {txHash.slice(0, 18)}… <ExternalLink size={13} />
+                </a>
+                <span style={{ fontSize: 10, color: 'var(--text-muted)' }}>
+                  (Indexing on GenLayer Explorer takes ~1-2 mins)
+                </span>
+              </div>
             </div>
           )}
         </div>
