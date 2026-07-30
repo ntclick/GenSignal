@@ -385,7 +385,7 @@ On-Chain Proof: ${txHash ? `${explorerUrl}/tx/${txHash}` : 'GenLayer Bradbury Te
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
                   <span style={{ color: 'var(--text-muted)' }}>Oracle Consensus Tx (GenLayer Engine):</span>
                   <a
-                    href={`${EXPLORER_BASE_URL}/tx/${txHash}`}
+                    href={`https://explorer-bradbury.genlayer.com/tx/${txHash}`}
                     target="_blank"
                     rel="noopener noreferrer"
                     style={{ color: '#3b82f6', textDecoration: 'none', fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: 4 }}
