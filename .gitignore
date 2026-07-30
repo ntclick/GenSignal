@@ -1,0 +1,19 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+ENV/
+.env
+
+# Node / Frontend
+frontend/node_modules/
+frontend/dist/
+.DS_Store
+*.log
+
+# IDE & Gemini Antigravity
+.vscode/
+.idea/
+tmp/
