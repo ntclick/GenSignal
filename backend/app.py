@@ -68,7 +68,10 @@ def get_client(network: str = ""):
     key = PRIVATE_KEY if PRIVATE_KEY.startswith("0x") else "0x" + PRIVATE_KEY
     account = create_account(key)
     target = network.lower() if network else DEFAULT_NETWORK
-    chain = studionet if target in ["studionet", "61999", "local"] else testnet_bradbury
+    if target in ["studionet", "61999", "local"]:
+        chain = studionet
+    else:
+        chain = testnet_bradbury
     return create_client(chain=chain, account=account)
 
 app = FastAPI(
@@ -494,7 +497,21 @@ def _read_signal(client, address: str) -> dict:
     return res
 
 def _fallback_coins():
+    default_prices = {
+        "BTC": "$63,890.00", "ETH": "$1,885.50", "SOL": "$138.40", "BNB": "$575.20",
+        "PEPE": "$0.00000850", "DOGE": "$0.0980", "SHIB": "$0.00001740", "WIF": "$1.4500",
+        "BONK": "$0.00001890", "FLOKI": "$0.000125", "NEIRO": "$0.000340",
+        "AVAX": "$22.50", "LINK": "$10.80", "SUI": "$0.9200", "NEAR": "$3.8500",
+        "APT": "$6.2000", "RENDER": "$4.5000", "INJ": "$16.80", "FET": "$0.8500",
+        "TIA": "$4.9000", "SEI": "$0.2800", "OP": "$1.3500", "ARB": "$0.4800"
+    }
     return [
-        {"sym": c["sym"], "pair": c["pair"], "name": c["name"], "price": "$0.00", "change": "0.00%"}
+        {
+            "sym": c["sym"],
+            "pair": c["pair"],
+            "name": c["name"],
+            "price": default_prices.get(c["sym"], "$1.00"),
+            "change": "+0.00%"
+        }
         for c in COINS_MAP
     ]

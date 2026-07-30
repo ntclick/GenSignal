@@ -42,9 +42,35 @@ function verdictClass(v) {
   }
 }
 
+const PRESET_COINS = [
+  { sym: 'BTC', pair: 'BTC/USDT', name: 'Bitcoin', price: '$63,890.00', change: '+0.05%' },
+  { sym: 'ETH', pair: 'ETH/USDT', name: 'Ethereum', price: '$1,885.50', change: '-1.20%' },
+  { sym: 'SOL', pair: 'SOL/USDT', name: 'Solana', price: '$138.40', change: '+2.10%' },
+  { sym: 'BNB', pair: 'BNB/USDT', name: 'BNB', price: '$575.20', change: '+0.45%' },
+  { sym: 'PEPE', pair: 'PEPE/USDT', name: 'Pepe', price: '$0.00000850', change: '-3.51%' },
+  { sym: 'DOGE', pair: 'DOGE/USDT', name: 'Dogecoin', price: '$0.0980', change: '-1.15%' },
+  { sym: 'SHIB', pair: 'SHIB/USDT', name: 'Shiba Inu', price: '$0.00001740', change: '+0.27%' },
+  { sym: 'WIF', pair: 'WIF/USDT', name: 'dogwifhat', price: '$1.4500', change: '-2.10%' },
+  { sym: 'BONK', pair: 'BONK/USDT', name: 'Bonk', price: '$0.00001890', change: '-4.79%' },
+  { sym: 'FLOKI', pair: 'FLOKI/USDT', name: 'Floki', price: '$0.00012500', change: '-3.18%' },
+  { sym: 'NEIRO', pair: 'NEIRO/USDT', name: 'Neiro', price: '$0.00034000', change: '-5.24%' },
+  { sym: 'AVAX', pair: 'AVAX/USDT', name: 'Avalanche', price: '$22.50', change: '+1.05%' },
+  { sym: 'LINK', pair: 'LINK/USDT', name: 'Chainlink', price: '$10.80', change: '-0.50%' },
+  { sym: 'SUI', pair: 'SUI/USDT', name: 'Sui Network', price: '$0.9200', change: '-1.21%' },
+  { sym: 'NEAR', pair: 'NEAR/USDT', name: 'NEAR Protocol', price: '$3.8500', change: '-5.15%' },
+  { sym: 'APT', pair: 'APT/USDT', name: 'Aptos', price: '$6.2000', change: '-4.84%' },
+  { sym: 'RENDER', pair: 'RENDER/USDT', name: 'Render Network', price: '$4.5000', change: '-3.00%' },
+  { sym: 'INJ', pair: 'INJ/USDT', name: 'Injective', price: '$16.80', change: '-1.95%' },
+  { sym: 'FET', pair: 'FET/USDT', name: 'Artificial Superintelligence', price: '$0.8500', change: '-5.07%' },
+  { sym: 'TIA', pair: 'TIA/USDT', name: 'Celestia', price: '$4.9000', change: '-5.09%' },
+  { sym: 'SEI', pair: 'SEI/USDT', name: 'Sei Network', price: '$0.2800', change: '-3.57%' },
+  { sym: 'OP', pair: 'OP/USDT', name: 'Optimism', price: '$1.3500', change: '-2.10%' },
+  { sym: 'ARB', pair: 'ARB/USDT', name: 'Arbitrum', price: '$0.4800', change: '-2.06%' }
+]
+
 export default function App() {
   const [activeNetwork, setActiveNetwork]     = useState('bradbury')
-  const [coins, setCoins]                     = useState([])
+  const [coins, setCoins]                     = useState(PRESET_COINS)
   const [searchQuery, setSearchQuery]         = useState('')
   const [selectedCoin, setSelectedCoin]       = useState('BTC')
   const [selectedStrategy, setSelectedStrategy] = useState('signals')
