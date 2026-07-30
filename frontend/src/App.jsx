@@ -349,6 +349,7 @@ function GenSignalAppContent() {
     addLog(`🛡️ Active Wallet: ${activeAddress?.slice(0, 8)}…${activeAddress?.slice(-6)} | Balance: ${realGenBalance} GEN`, 'hi')
 
     let userSig = null
+    let currentAddress = userAddress
     let lastError = null
 
     // 1. Signature Step (User signs once via MetaMask)
@@ -356,7 +357,6 @@ function GenSignalAppContent() {
       await safeEnsureBackendAlive()
       setExecutionStep('Step 1/3: Requesting Wallet Signature…')
       
-      let currentAddress = userAddress
       if (!currentAddress && window.ethereum) {
         addLog(`👛 Prompting MetaMask wallet connection…`, 'hi')
         try {
