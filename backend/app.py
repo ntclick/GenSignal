@@ -28,6 +28,7 @@ COINGECKO_API_KEY = os.getenv("COINGECKO_API_KEY", "")
 CONTRACT_ORACLE   = pathlib.Path(__file__).parent.parent / "contracts" / "signal_oracle.py"
 CONTRACT_TREASURY = pathlib.Path(__file__).parent.parent / "contracts" / "signal_treasury.py"
 
+BRADBURY_RPC_URL    = "https://rpc-bradbury.genlayer.com"
 NATIVE_TOKEN_SYMBOL = "GEN"
 X402_FEE_GEN        = "0.05"
 TREASURY_ADDRESS    = "0xafe6dd950dc2cf561e8daba1725e0e6840f70549"
@@ -168,8 +169,8 @@ async def startup_warmup():
             if deploy_tx:
                 deploy_tx_str = str(deploy_tx).strip()
                 print(f"📜 [Startup] SignalTreasury deploy tx submitted: {deploy_tx_str}")
-                # Resolve actual 42-char contract address from Explorer API (wait up to 60s)
-                resolved_addr = _resolve_contract_address_from_explorer_sync(deploy_tx_str, max_attempts=20, delay=3)
+                # Resolve actual 42-char contract address from RPC (wait up to 60s)
+                resolved_addr = _resolve_contract_address_from_rpc_sync(deploy_tx_str, max_attempts=20, delay=3)
                 if resolved_addr:
                     _DEPLOYED_TREASURY_ADDRESS = resolved_addr
                     print(f"✅ [Startup] SignalTreasury contract address resolved: {_DEPLOYED_TREASURY_ADDRESS}")
@@ -449,21 +450,60 @@ def _is_valid_contract_address(addr: str) -> bool:
     s = str(addr).strip()
     return s.startswith("0x") and len(s) == 42
 
-def _resolve_contract_address_from_explorer_sync(tx_hash: str, max_attempts: int = 12, delay: int = 3) -> Optional[str]:
+def _resolve_contract_address_from_rpc_sync(tx_hash: str, max_attempts: int = 30, delay: int = 2) -> Optional[str]:
     """
-    Query the GenLayer Explorer API to resolve the actual contract address
-    (recipient field) from a deployment transaction hash.
-    Blocks synchronously - only call from startup or non-async contexts.
-    Returns 42-char address string, or None if not found within max_attempts.
+    Query the GenLayer Node RPC directly (gen_getTransactionReceipt) to resolve
+    the actual 42-char contract address (recipient field) from a deployment tx hash.
+
+    The Node RPC indexes the transaction immediately upon submission — unlike the
+    Explorer API which may take minutes. We poll until `recipient` is a valid
+    42-char Ethereum address.
+
+    Returns the 42-char contract address string, or None if not resolved.
     """
     import time as _time
-    explorer_url = f"https://explorer-api.testnet-chain.genlayer.com/api/v2/transactions/{tx_hash}"
+
+    # Primary: GenLayer Node RPC (immediate indexing)
+    rpc_url = "https://testnet-rpc.genlayer.foundation"
+    rpc_payload = {
+        "jsonrpc": "2.0",
+        "method": "gen_getTransactionReceipt",
+        "params": [tx_hash],
+        "id": 1
+    }
+
     for attempt in range(1, max_attempts + 1):
+        # ── 1. Try GenLayer Node RPC ──────────────────────────────────────────
         try:
-            resp = httpx.get(explorer_url, timeout=10.0)
+            resp = httpx.post(rpc_url, json=rpc_payload, timeout=10.0)
             if resp.status_code == 200:
-                data = resp.json()
-                # Explorer returns {data: {recipient: "0x...", ...}}
+                body = resp.json()
+                result = body.get("result") or {}
+                if isinstance(result, dict):
+                    recipient = (
+                        result.get("recipient") or
+                        result.get("contract_address") or
+                        result.get("contractAddress") or
+                        result.get("to")
+                    )
+                    if _is_valid_contract_address(recipient):
+                        print(f"  ✅ [RPC Resolve #{attempt}] Contract address: {recipient}")
+                        return str(recipient)
+                    status_name = result.get("status_name") or result.get("status", "?")
+                    print(f"  [RPC Resolve #{attempt}/{max_attempts}] recipient not yet valid (status={status_name}): {recipient!r}")
+                else:
+                    print(f"  [RPC Resolve #{attempt}/{max_attempts}] result not a dict: {str(result)[:80]}")
+            else:
+                print(f"  [RPC Resolve #{attempt}/{max_attempts}] RPC HTTP {resp.status_code}")
+        except Exception as e:
+            print(f"  [RPC Resolve #{attempt}/{max_attempts}] RPC error: {e}")
+
+        # ── 2. Fallback: Try Explorer API ─────────────────────────────────────
+        try:
+            ex_url = f"https://explorer-api.testnet-chain.genlayer.com/api/v2/transactions/{tx_hash}"
+            ex_resp = httpx.get(ex_url, timeout=8.0)
+            if ex_resp.status_code == 200:
+                data = ex_resp.json()
                 tx_data = data.get("data") or data
                 recipient = (
                     tx_data.get("recipient") or
@@ -472,15 +512,16 @@ def _resolve_contract_address_from_explorer_sync(tx_hash: str, max_attempts: int
                     tx_data.get("contractAddress")
                 )
                 if _is_valid_contract_address(recipient):
+                    print(f"  ✅ [Explorer Resolve #{attempt}] Contract address: {recipient}")
                     return str(recipient)
-                print(f"  [Explorer Resolve Attempt {attempt}/{max_attempts}] recipient not yet valid: {recipient}")
-            else:
-                print(f"  [Explorer Resolve Attempt {attempt}/{max_attempts}] HTTP {resp.status_code}")
-        except Exception as e:
-            print(f"  [Explorer Resolve Attempt {attempt}/{max_attempts}] Error: {e}")
+        except Exception:
+            pass
+
         if attempt < max_attempts:
             _time.sleep(delay)
+
     return None
+
 
 
 @app.post("/api/signal/pay")
@@ -504,7 +545,7 @@ def pay_for_signal(body: PayRequest):
                     deploy_tx_str = str(deploy_tx).strip()
                     print(f"📜 [Pay] SignalTreasury deploy tx: {deploy_tx_str}")
                     # Resolve actual contract address - wait up to 60s
-                    resolved = _resolve_contract_address_from_explorer_sync(deploy_tx_str, max_attempts=20, delay=3)
+                    resolved = _resolve_contract_address_from_rpc_sync(deploy_tx_str, max_attempts=20, delay=3)
                     if resolved:
                         _DEPLOYED_TREASURY_ADDRESS = resolved
                         print(f"✅ [Pay] SignalTreasury contract address: {_DEPLOYED_TREASURY_ADDRESS}")
@@ -534,7 +575,7 @@ def pay_for_signal(body: PayRequest):
 
     return {
         "status": "paid",
-        "treasury_address": str(treasury_addr),
+        "treasury_address": str(target_contract),
         "treasury_tx_hash": clean_pay_tx,
         "user": body.user_identity or TREASURY_ADDRESS,
         "pair": body.pair,
@@ -721,7 +762,12 @@ Respond STRICTLY with a valid JSON object matching this exact schema — no mark
             args=[symbol, f"{symbol}/USDT", body.strategy, user_identity]
         )
         if deploy_tx:
-            contract_address = str(deploy_tx)
+            deploy_tx_str = str(deploy_tx).strip()
+            print(f"📜 [Evaluate] SignalOracle deploy tx: {deploy_tx_str}")
+            resolved_oracle = _resolve_contract_address_from_rpc_sync(deploy_tx_str, max_attempts=20, delay=3)
+            if not _is_valid_contract_address(resolved_oracle):
+                raise RuntimeError(f"SignalOracle contract address could not be resolved from deploy tx {deploy_tx_str!r}.")
+            contract_address = resolved_oracle
             w_tx, latency_ms = execute_write_contract_with_retry(
                 client=client,
                 address=contract_address,
