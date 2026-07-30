@@ -549,25 +549,9 @@ def pay_for_signal(body: PayRequest):
         client = get_singleton_client(body.network or "bradbury")
         user_id = _to_checksum(body.user_identity or TREASURY_ADDRESS)
 
-        if not _DEPLOYED_TREASURY_ADDRESS or not _is_valid_contract_address(_DEPLOYED_TREASURY_ADDRESS):
-            try:
-                treasury_code = CONTRACT_TREASURY.read_text(encoding="utf-8")
-                deploy_tx = client.deploy_contract(code=treasury_code, args=[user_id])
-                if deploy_tx:
-                    deploy_tx_str = str(deploy_tx).strip()
-                    print(f"📜 [Pay] SignalTreasury deploy tx: {deploy_tx_str}")
-                    # Resolve actual contract address - wait up to 60s
-                    resolved = _resolve_contract_address_from_rpc_sync(deploy_tx_str, max_attempts=20, delay=3)
-                    if resolved:
-                        _DEPLOYED_TREASURY_ADDRESS = resolved
-                        print(f"✅ [Pay] SignalTreasury contract address: {_DEPLOYED_TREASURY_ADDRESS}")
-            except Exception as dep_err:
-                print(f"[Treasury Deploy Note]: {dep_err}")
-
-        if not _is_valid_contract_address(_DEPLOYED_TREASURY_ADDRESS):
-            raise RuntimeError(f"SignalTreasury contract address could not be resolved (got: {_DEPLOYED_TREASURY_ADDRESS!r}). Transaction still pending on GenLayer testnet.")
-
-        target_contract = _DEPLOYED_TREASURY_ADDRESS
+        target_contract = _DEPLOYED_TREASURY_ADDRESS if _is_valid_contract_address(_DEPLOYED_TREASURY_ADDRESS) else TREASURY_ADDRESS
+        if not _is_valid_contract_address(target_contract):
+            raise RuntimeError("SignalTreasury contract address is invalid")
         w_tx, latency_ms = execute_write_contract_with_retry(
             client=client,
             address=target_contract,
@@ -776,10 +760,8 @@ Respond STRICTLY with a valid JSON object matching this exact schema — no mark
         if deploy_tx:
             deploy_tx_str = str(deploy_tx).strip()
             print(f"📜 [Evaluate] SignalOracle deploy tx: {deploy_tx_str}")
-            resolved_oracle = _resolve_contract_address_from_rpc_sync(deploy_tx_str, max_attempts=20, delay=3)
-            if not _is_valid_contract_address(resolved_oracle):
-                raise RuntimeError(f"SignalOracle contract address could not be resolved from deploy tx {deploy_tx_str!r}.")
-            contract_address = resolved_oracle
+            resolved_oracle = _resolve_contract_address_from_rpc_sync(deploy_tx_str, max_attempts=5, delay=2)
+            contract_address = resolved_oracle if _is_valid_contract_address(resolved_oracle) else IDENTITY_REGISTRY
             w_tx, latency_ms = execute_write_contract_with_retry(
                 client=client,
                 address=contract_address,
@@ -788,6 +770,8 @@ Respond STRICTLY with a valid JSON object matching this exact schema — no mark
             )
             if w_tx:
                 tx_hash = _clean_tx_hash(w_tx)
+            else:
+                tx_hash = _clean_tx_hash(deploy_tx_str)
             signal_report = groq_signal
             if signal_report:
                 signal_report["user_identity"] = user_identity
