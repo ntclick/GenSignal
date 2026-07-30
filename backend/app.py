@@ -287,14 +287,29 @@ def pay_for_signal(body: PayRequest):
         client = get_client(body.network or "bradbury")
         user_id = _to_checksum(body.user_identity or TREASURY_ADDRESS)
         treasury_code = CONTRACT_TREASURY.read_text(encoding="utf-8")
-        deploy_tx = client.deploy_contract(code=treasury_code, args=[user_id])
-        if deploy_tx:
-            pay_tx = _clean_tx_hash(deploy_tx)
-            deploy_receipt = client.wait_for_transaction_receipt(deploy_tx)
-            addr = deploy_receipt.get("contract_address") or deploy_receipt.get("to")
-            if addr:
-                _DEPLOYED_TREASURY_ADDRESS = str(addr)
-                treasury_addr = str(addr)
+
+        if not _DEPLOYED_TREASURY_ADDRESS:
+            deploy_tx = client.deploy_contract(code=treasury_code, args=[user_id])
+            if deploy_tx:
+                deploy_receipt = client.wait_for_transaction_receipt(deploy_tx)
+                addr = deploy_receipt.get("contract_address") or deploy_receipt.get("to")
+                if addr:
+                    _DEPLOYED_TREASURY_ADDRESS = str(addr)
+                    treasury_addr = str(addr)
+
+        if _DEPLOYED_TREASURY_ADDRESS:
+            try:
+                w_tx = client.write_contract(
+                    address=_DEPLOYED_TREASURY_ADDRESS,
+                    function_name="pay_for_signal",
+                    args=[user_id, body.pair],
+                    value=X402_FEE_WEI
+                )
+                if w_tx:
+                    pay_tx = _clean_tx_hash(w_tx)
+                    client.wait_for_transaction_receipt(w_tx)
+            except Exception as w_err:
+                print(f"[Treasury Write Note]: {w_err}")
     except Exception as de:
         print(f"[Treasury Pay Note]: {de}")
 
@@ -486,11 +501,11 @@ Respond STRICTLY with a valid JSON object matching this exact schema — no mark
             code=code,
             args=[symbol, f"{symbol}/USDT", body.strategy, user_identity]
         )
-        tx_hash = _clean_tx_hash(deploy_tx)
         receipt = client.wait_for_transaction_receipt(deploy_tx)
         ca = receipt.get("contract_address") or receipt.get("to")
         if ca:
             contract_address = str(ca)
+            write_tx = None
             try:
                 write_tx = client.write_contract(
                     address=ca,
@@ -503,8 +518,10 @@ Respond STRICTLY with a valid JSON object matching this exact schema — no mark
                 signal_report = _read_signal(client, ca)
                 if signal_report:
                     signal_report["user_identity"] = user_identity
-            except Exception:
-                pass
+            except Exception as we:
+                print(f"[Oracle Write Note]: {we}")
+                if write_tx:
+                    tx_hash = _clean_tx_hash(write_tx)
     except Exception as ge:
         print(f"[Oracle Deploy Note]: {ge}")
 
