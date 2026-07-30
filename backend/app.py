@@ -152,6 +152,11 @@ async def startup_warmup():
         t0 = time.time()
         res = await _SHARED_HTTP_CLIENT.get("https://explorer-api.testnet-chain.genlayer.com/docs")
         t1 = time.time()
+        _STARTUP_METRICS["explorer_init_ms"] = round((t1 - t0) * 1000, 2)
+        print(f"✅ [Startup] GenLayer Explorer API probe success ({_STARTUP_METRICS['explorer_init_ms']}ms)")
+    except Exception as e:
+        print(f"⚠️ [Startup Warning] Explorer API probe error: {e}")
+
     # 4. Pre-deploy / Warm up SignalTreasury Contract ONCE on Startup
     global _DEPLOYED_TREASURY_ADDRESS
     try:
