@@ -114,6 +114,15 @@ const getSanitizedBackendUrl = (url) => {
 
 function GenSignalAppContent() {
   const { isBackendReady, ensureBackendAlive } = useBackendWarmup()
+
+  const safeEnsureBackendAlive = useCallback(async () => {
+    if (typeof ensureBackendAlive === 'function') {
+      try {
+        return await ensureBackendAlive()
+      } catch (e) {}
+    }
+    return true
+  }, [ensureBackendAlive])
   const [activeTab, setActiveTab]             = useState('home') // 'home' | 'dapp'
   const [activeNetwork, setActiveNetwork]     = useState('bradbury')
   const [coins, setCoins]                     = useState(PRESET_COINS)
@@ -203,7 +212,7 @@ function GenSignalAppContent() {
   const fetchCoins = useCallback(async () => {
     setIsRefreshingCoins(true)
     try {
-      await ensureBackendAlive()
+      await safeEnsureBackendAlive()
       const res = await fetch(`${activeBackendUrl}/api/coins`, { cache: 'no-store' })
       if (res.ok) {
         setCoins(await res.json())
@@ -326,7 +335,7 @@ function GenSignalAppContent() {
     let userSig = null
 
     try {
-      await ensureBackendAlive()
+      await safeEnsureBackendAlive()
       // Step 1: Signature
       setExecutionStep('Step 1/3: Requesting Wallet Signature…')
       if (userAddress && window.ethereum) {
@@ -351,7 +360,7 @@ function GenSignalAppContent() {
       setExecutionStep('STEP 01: Signing x402 Micropayment (0.05 GEN)…')
       addLog(`💸 [Step 2/3] Sending x402 payment (${stratObj.fee}) to SignalTreasury…`, 'hi')
       
-      await ensureBackendAlive()
+      await safeEnsureBackendAlive()
       const payRes = await fetch(`${activeBackendUrl}/api/signal/pay`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -376,7 +385,7 @@ function GenSignalAppContent() {
       setExecutionStep('Step 3/3: Invoking Groq LLM & AI-Validators…')
       addLog(`🧠 [Step 3/3] Invoking Groq LLM & GenLayer Optimistic Democracy (${selectedTimeframe.toUpperCase()} TF)…`, 'hi')
 
-      await ensureBackendAlive()
+      await safeEnsureBackendAlive()
       const res = await fetch(`${activeBackendUrl}/api/signal/evaluate`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
