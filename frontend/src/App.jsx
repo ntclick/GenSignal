@@ -6,6 +6,7 @@ import {
 } from 'lucide-react'
 import { BackendWarmupProvider, useBackendWarmup } from './context/BackendWarmupContext'
 import { SignalResultTerminal } from './components/SignalResultTerminal'
+import { TransactionStatusService } from './services/TransactionStatusService'
 
 const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || 'http://localhost:8001'
 const LOCAL_STORAGE_WALLET_KEY = 'gensignal_connected_wallet'
