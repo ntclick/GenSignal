@@ -260,24 +260,16 @@ def get_x402_quote(network: Optional[str] = "bradbury"):
         "network": network
     }
 
-def _generate_dynamic_tx_hash(seed_text: str = "") -> str:
-    """Generates a dynamic 66-character hex string starting with 0x using sha256 of timestamp + seed."""
-    import hashlib
-    import time
-    raw = f"{time.time_ns()}:{seed_text}:{time.process_time_ns()}"
-    h = hashlib.sha256(raw.encode("utf-8")).hexdigest()
-    return "0x" + h
-
-def _clean_tx_hash(tx: str) -> str:
+def _clean_tx_hash(tx: str) -> Optional[str]:
     if not tx:
-        return _generate_dynamic_tx_hash("genlayer_tx")
+        return None
     tx_str = str(tx).strip().lower()
     if not tx_str.startswith("0x"):
         tx_str = "0x" + tx_str
     hex_body = "".join([c for c in tx_str[2:] if c in "0123456789abcdef"])
-    if len(hex_body) >= 64:
-        return "0x" + hex_body[:64]
-    return _generate_dynamic_tx_hash("genlayer_tx")
+    if len(hex_body) == 64:
+        return "0x" + hex_body
+    return None
 
 _DEPLOYED_TREASURY_ADDRESS = None
 
@@ -285,11 +277,11 @@ _DEPLOYED_TREASURY_ADDRESS = None
 def pay_for_signal(body: PayRequest):
     """
     x402 micropayment: deploy (or reuse) SignalTreasury contract and call
-    pay_for_signal() with 0.05 GEN fee.
+    pay_for_signal() with exact fee.
     """
     global _DEPLOYED_TREASURY_ADDRESS
     treasury_addr = _DEPLOYED_TREASURY_ADDRESS or TREASURY_ADDRESS
-    pay_tx = _generate_dynamic_tx_hash(f"pay_{body.pair}_{body.user_identity}")
+    pay_tx = None
 
     try:
         client = get_client(body.network or "bradbury")
@@ -306,20 +298,33 @@ def pay_for_signal(body: PayRequest):
                     treasury_addr = str(addr)
 
         if _DEPLOYED_TREASURY_ADDRESS:
-            try:
-                w_tx = client.write_contract(
-                    address=_DEPLOYED_TREASURY_ADDRESS,
-                    function_name="pay_for_signal",
-                    args=[user_id, body.pair],
-                    value=X402_FEE_WEI
-                )
-                if w_tx:
-                    pay_tx = _clean_tx_hash(w_tx)
-                    client.wait_for_transaction_receipt(w_tx)
-            except Exception as w_err:
-                print(f"[Treasury Write Note]: {w_err}")
+            w_tx = client.write_contract(
+                address=_DEPLOYED_TREASURY_ADDRESS,
+                function_name="pay_for_signal",
+                args=[user_id, body.pair],
+                value=X402_FEE_WEI
+            )
+            if w_tx:
+                pay_tx = _clean_tx_hash(w_tx)
+                client.wait_for_transaction_receipt(w_tx)
     except Exception as de:
-        print(f"[Treasury Pay Note]: {de}")
+        print(f"[Treasury Pay Error]: {de}")
+        raise HTTPException(status_code=500, detail=f"GenLayer x402 Micropayment transaction failed: {de}")
+
+    clean_pay_tx = _clean_tx_hash(pay_tx)
+    if not clean_pay_tx:
+        raise HTTPException(status_code=500, detail="GenLayer RPC did not return a valid transaction hash for micropayment")
+
+    return {
+        "status": "paid",
+        "treasury_address": str(treasury_addr),
+        "treasury_tx_hash": clean_pay_tx,
+        "user": body.user_identity or TREASURY_ADDRESS,
+        "pair": body.pair,
+        "fee_gen": X402_FEE_GEN,
+        "fee_wei": str(X402_FEE_WEI),
+        "network": body.network
+    }
 
     return {
         "status": "paid",
@@ -513,31 +518,25 @@ Respond STRICTLY with a valid JSON object matching this exact schema — no mark
         ca = receipt.get("contract_address") or receipt.get("to")
         if ca:
             contract_address = str(ca)
-            write_tx = None
-            try:
-                write_tx = client.write_contract(
-                    address=ca,
-                    function_name="evaluate_signal",
-                    args=[market_summary, payment_tx]
-                )
-                if write_tx:
-                    tx_hash = _clean_tx_hash(write_tx)
-                client.wait_for_transaction_receipt(write_tx)
-                signal_report = _read_signal(client, ca)
-                if signal_report:
-                    signal_report["user_identity"] = user_identity
-            except Exception as we:
-                print(f"[Oracle Write Note]: {we}")
-                if write_tx:
-                    tx_hash = _clean_tx_hash(write_tx)
+            write_tx = client.write_contract(
+                address=ca,
+                function_name="evaluate_signal",
+                args=[market_summary, payment_tx]
+            )
+            if write_tx:
+                tx_hash = _clean_tx_hash(write_tx)
+            client.wait_for_transaction_receipt(write_tx)
+            signal_report = _read_signal(client, ca)
+            if signal_report:
+                signal_report["user_identity"] = user_identity
     except Exception as ge:
-        print(f"[Oracle Deploy Note]: {ge}")
+        print(f"[Oracle Execution Error]: {ge}")
+        raise HTTPException(status_code=500, detail=f"GenLayer Oracle Consensus transaction failed: {ge}")
 
-    # Ensure tx_hash is a clean 66-character hex string for Oracle deployment
-    if not tx_hash or len(tx_hash) < 60:
-        tx_hash = _generate_dynamic_tx_hash(f"oracle_{symbol}_{body.strategy}")
+    clean_tx_hash = _clean_tx_hash(tx_hash)
+    if not clean_tx_hash:
+        raise HTTPException(status_code=500, detail="GenLayer RPC did not return a valid transaction hash for oracle consensus")
 
-    tx_hash = _clean_tx_hash(tx_hash)
     clean_payment_tx = _clean_tx_hash(body.payment_tx) if body.payment_tx else None
 
     # ── Step 4: Fallback to Groq result ──────────────────────────────────────

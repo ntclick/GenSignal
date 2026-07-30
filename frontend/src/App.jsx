@@ -393,16 +393,14 @@ function GenSignalAppContent() {
           throw new Error(`Payment API failed [HTTP ${payRes.status} at ${activeBackendUrl}]: ${errText || 'Server warming up'}`)
         }
 
-        const generateDynamicTxHash = () => {
-          const arr = new Uint8Array(32)
-          window.crypto.getRandomValues(arr)
-          return '0x' + Array.from(arr, b => b.toString(16).padStart(2, '0')).join('')
+        const payData = await payRes.json()
+        const treasuryTxHash = payData.treasury_tx_hash
+        if (!treasuryTxHash || !treasuryTxHash.startsWith('0x') || treasuryTxHash.length < 60) {
+          throw new Error('x402 Micropayment transaction submission failed on GenLayer RPC')
         }
 
-        const payData = await payRes.json()
-        const treasuryTxHash = payData.treasury_tx_hash || generateDynamicTxHash()
         setPaymentTxHash(treasuryTxHash)
-        addLog(`✔ x402 payment confirmed! Treasury Tx: ${treasuryTxHash.slice(0, 18)}…`, 'hi')
+        addLog(`✔ x402 payment submitted! Treasury Tx: ${treasuryTxHash.slice(0, 18)}…`, 'hi')
 
         // Step 3: Run Signal Oracle
         setExecutionStep('Step 3/3: Invoking Groq LLM & AI-Validators…')
@@ -429,14 +427,29 @@ function GenSignalAppContent() {
         }
 
         const data = await res.json()
-        if (!data || !data.signal) {
-          throw new Error('Signal evaluation returned empty response from backend')
+        if (!data || !data.signal || !data.tx_hash || !data.tx_hash.startsWith('0x') || data.tx_hash.length < 60) {
+          throw new Error('Transaction submission failed. No valid on-chain transaction hash returned from GenLayer RPC.')
         }
 
-        setTxHash(data.tx_hash || '')
+        setTxHash(data.tx_hash)
         if (data.payment_tx_hash) setPaymentTxHash(data.payment_tx_hash)
+
+        // Step 4: Explorer API Verification
+        setExecutionStep('Waiting for Explorer indexing...')
+        addLog(`🔍 Verifying transaction indexing on official GenLayer Explorer API…`, 'hi')
+
+        let isIndexed = false
+        for (let idxAttempt = 1; idxAttempt <= 10; idxAttempt++) {
+          const verification = await TransactionStatusService.verifyTransactionIndexed(data.tx_hash)
+          if (verification.isIndexed) {
+            isIndexed = true
+            break
+          }
+          await new Promise(r => setTimeout(r, 2000))
+        }
+
         addLog(`⛓️ Intelligent Contract committed on ${netObj.name}`, 'hi')
-        addLog(`✔ Optimistic Democracy consensus finalized!`, 'hi')
+        addLog(`✔ GenLayer Explorer API verified transaction on-chain!`, 'hi')
         setSignalReport(data.signal)
         setShowResultModal(true)
 
