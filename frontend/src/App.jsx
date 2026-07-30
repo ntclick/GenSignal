@@ -333,10 +333,11 @@ function GenSignalAppContent() {
     addLog(`🛡️ Active Wallet: ${activeAddress?.slice(0, 8)}…${activeAddress?.slice(-6)} | Balance: ${realGenBalance} GEN`, 'hi')
 
     let userSig = null
+    let lastError = null
 
+    // 1. Signature Step (User signs once)
     try {
       await safeEnsureBackendAlive()
-      // Step 1: Signature
       setExecutionStep('Step 1/3: Requesting Wallet Signature…')
       if (userAddress && window.ethereum) {
         addLog(`✍️ [Step 1/3] Requesting MetaMask signature for x402 authorization…`, 'hi')
@@ -355,81 +356,106 @@ function GenSignalAppContent() {
       } else {
         addLog(`⚡ [Step 1/3] Using Testnet .env Wallet (auto-authenticated)`, 'hi')
       }
-
-      // Step 2: x402 Payment
-      setExecutionStep(`STEP 01: Executing x402 Micropayment (${stratObj.fee})…`)
-      addLog(`💸 [Step 2/3] Sending x402 payment (${stratObj.fee}) to SignalTreasury…`, 'hi')
-      
-      await safeEnsureBackendAlive()
-      const payRes = await fetch(`${activeBackendUrl}/api/signal/pay`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          user_identity: activeAddress,
-          pair: `${selectedCoin}/USDT`,
-          network: activeNetwork
-        })
-      })
-
-      if (!payRes.ok) {
-        const errText = await payRes.text().catch(() => '')
-        throw new Error(`Payment API failed [HTTP ${payRes.status} at ${activeBackendUrl}]: ${errText || 'Server 404/Error. Check API Server Settings in Header!'}`)
-      }
-
-      const generateDynamicTxHash = () => {
-        const arr = new Uint8Array(32)
-        window.crypto.getRandomValues(arr)
-        return '0x' + Array.from(arr, b => b.toString(16).padStart(2, '0')).join('')
-      }
-
-      const payData = await payRes.json()
-      const treasuryTxHash = payData.treasury_tx_hash || generateDynamicTxHash()
-      setPaymentTxHash(treasuryTxHash)
-      addLog(`✔ x402 payment confirmed! Treasury Tx: ${treasuryTxHash.slice(0, 18)}…`, 'hi')
-
-      // Step 3: Run Signal Oracle
-      setExecutionStep('Step 3/3: Invoking Groq LLM & AI-Validators…')
-      addLog(`🧠 [Step 3/3] Invoking Groq LLM & GenLayer Optimistic Democracy (${selectedTimeframe.toUpperCase()} TF)…`, 'hi')
-
-      await safeEnsureBackendAlive()
-      const res = await fetch(`${activeBackendUrl}/api/signal/evaluate`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          symbol: selectedCoin,
-          pair: `${selectedCoin}/USDT`,
-          strategy: stratObj.label,
-          timeframe: selectedTimeframe,
-          network: activeNetwork,
-          user_identity: activeAddress,
-          payment_tx: treasuryTxHash,
-          user_signature: userSig || '0x_env_wallet_auto'
-        })
-      })
-
-      if (!res.ok) {
-        const errText = await res.text().catch(() => '')
-        throw new Error(`Signal Evaluation API failed [HTTP ${res.status} at ${activeBackendUrl}]: ${errText || 'Server Error. Check API Server Settings in Header!'}`)
-      }
-
-      const data = await res.json()
-      if (!data || !data.signal) {
-        throw new Error('Signal evaluation returned empty response from backend')
-      }
-
-      setTxHash(data.tx_hash || '')
-      if (data.payment_tx_hash) setPaymentTxHash(data.payment_tx_hash)
-      addLog(`⛓️ Intelligent Contract committed on ${netObj.name}`, 'hi')
-      addLog(`✔ Optimistic Democracy consensus finalized!`, 'hi')
-      setSignalReport(data.signal)
-      setShowResultModal(true)
-    } catch (e) {
-      setError(e.message)
-      addLog(`❌ ${e.message}`, 'warn')
-    } finally {
+    } catch (sigErr) {
+      setError(sigErr.message || 'Wallet signature rejected')
       setLoading(false)
       setExecutionStep('')
+      return
     }
+
+    // 2. Automatic Retry Loop (Up to 3 attempts) for Backend API Calls
+    const MAX_AUTO_RETRIES = 3
+    for (let attempt = 1; attempt <= MAX_AUTO_RETRIES; attempt++) {
+      try {
+        if (attempt > 1) {
+          addLog(`🔄 [Auto-Retry ${attempt}/${MAX_AUTO_RETRIES}] Re-probing Render backend connection…`, 'warn')
+          setExecutionStep(`Auto-Retrying Backend Connection (${attempt}/${MAX_AUTO_RETRIES})…`)
+          await new Promise(r => setTimeout(r, 2500))
+          await safeEnsureBackendAlive()
+        }
+
+        // Step 2: x402 Payment
+        setExecutionStep(`STEP 01: Executing x402 Micropayment (${stratObj.fee})…`)
+        addLog(`💸 [Step 2/3] Sending x402 payment (${stratObj.fee}) to SignalTreasury…`, 'hi')
+        
+        const payRes = await fetch(`${activeBackendUrl}/api/signal/pay`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            user_identity: activeAddress,
+            pair: `${selectedCoin}/USDT`,
+            network: activeNetwork
+          })
+        })
+
+        if (!payRes.ok) {
+          const errText = await payRes.text().catch(() => '')
+          throw new Error(`Payment API failed [HTTP ${payRes.status} at ${activeBackendUrl}]: ${errText || 'Server warming up'}`)
+        }
+
+        const generateDynamicTxHash = () => {
+          const arr = new Uint8Array(32)
+          window.crypto.getRandomValues(arr)
+          return '0x' + Array.from(arr, b => b.toString(16).padStart(2, '0')).join('')
+        }
+
+        const payData = await payRes.json()
+        const treasuryTxHash = payData.treasury_tx_hash || generateDynamicTxHash()
+        setPaymentTxHash(treasuryTxHash)
+        addLog(`✔ x402 payment confirmed! Treasury Tx: ${treasuryTxHash.slice(0, 18)}…`, 'hi')
+
+        // Step 3: Run Signal Oracle
+        setExecutionStep('Step 3/3: Invoking Groq LLM & AI-Validators…')
+        addLog(`🧠 [Step 3/3] Invoking Groq LLM & GenLayer Optimistic Democracy (${selectedTimeframe.toUpperCase()} TF)…`, 'hi')
+
+        const res = await fetch(`${activeBackendUrl}/api/signal/evaluate`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            symbol: selectedCoin,
+            pair: `${selectedCoin}/USDT`,
+            strategy: stratObj.label,
+            timeframe: selectedTimeframe,
+            network: activeNetwork,
+            user_identity: activeAddress,
+            payment_tx: treasuryTxHash,
+            user_signature: userSig || '0x_env_wallet_auto'
+          })
+        })
+
+        if (!res.ok) {
+          const errText = await res.text().catch(() => '')
+          throw new Error(`Signal Evaluation API failed [HTTP ${res.status} at ${activeBackendUrl}]: ${errText || 'Server warming up'}`)
+        }
+
+        const data = await res.json()
+        if (!data || !data.signal) {
+          throw new Error('Signal evaluation returned empty response from backend')
+        }
+
+        setTxHash(data.tx_hash || '')
+        if (data.payment_tx_hash) setPaymentTxHash(data.payment_tx_hash)
+        addLog(`⛓️ Intelligent Contract committed on ${netObj.name}`, 'hi')
+        addLog(`✔ Optimistic Democracy consensus finalized!`, 'hi')
+        setSignalReport(data.signal)
+        setShowResultModal(true)
+
+        // Success! Clear error & exit function
+        setError('')
+        setLoading(false)
+        setExecutionStep('')
+        return
+
+      } catch (e) {
+        lastError = e
+        addLog(`⚠️ Attempt ${attempt}/${MAX_AUTO_RETRIES} failed: ${e.message}`, 'warn')
+      }
+    }
+
+    // If all 3 auto-retries fail, display the manual Retry Modal to the user!
+    setError(lastError?.message || 'Backend connection failed after 3 automatic retries')
+    setLoading(false)
+    setExecutionStep('')
   }
 
   const copyAddr = (addr) => {
