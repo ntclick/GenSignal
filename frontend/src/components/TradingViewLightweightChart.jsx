@@ -74,17 +74,25 @@ export const TradingViewLightweightChart = ({
 
       if (!candleSeries) return
 
-      // Add Volume Histogram Series
+      // Add Volume Histogram Series on a separate scale to keep it at the bottom
       const volumeOptions = {
         color: '#3b82f6',
         priceFormat: { type: 'volume' },
-        priceScaleId: '',
-        scaleMargins: { top: 0.75, bottom: 0 }
+        priceScaleId: 'volume'
       }
 
       const volumeSeries = typeof chart.addSeries === 'function'
         ? chart.addSeries(HistogramSeries, volumeOptions)
         : (typeof chart.addHistogramSeries === 'function' ? chart.addHistogramSeries(volumeOptions) : null)
+
+      if (chart.priceScale) {
+        chart.priceScale('volume').applyOptions({
+          scaleMargins: {
+            top: 0.8, // Constrain volume bars to the bottom 20% of chart
+            bottom: 0
+          }
+        })
+      }
 
       // Generate synthetic historical candles around currentPrice
       const basePrice = Number(currentPrice) || 64484.0
