@@ -16,6 +16,7 @@
   --accent-purple: #a855f7;
   --accent-blue: #3b82f6;
   --accent-cyan: #06b6d4;
+  --accent-indigo: #6366f1;
   --accent-glow: rgba(59, 130, 246, 0.25);
 
   --verdict-long: #10b981;
@@ -81,7 +82,7 @@ body::after {
 
 .container { max-width: 1280px; margin: 0 auto; padding: 0 24px 80px; }
 
-/* ─── Enterprise SaaS Header with Official Logo ───────────────── */
+/* ─── Enterprise SaaS Header ───────────────── */
 .header {
   position: sticky;
   top: 0;
@@ -109,7 +110,8 @@ body::after {
 }
 
 .header-logo-img {
-  height: 36px;
+  height: 38px;
+  max-height: 38px;
   width: auto;
   object-fit: contain;
   display: block;
@@ -209,37 +211,6 @@ body::after {
   box-shadow: 0 0 8px #10b981; animation: pulse 2s infinite;
 }
 @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
-
-/* ─── Navigation Tabs & Links ────────────── */
-.nav-tabs {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  background: var(--bg-surface);
-  padding: 5px;
-  border-radius: 999px;
-  border: 1px solid var(--border-glass);
-}
-.nav-tab {
-  padding: 8px 18px;
-  border-radius: 999px;
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--text-secondary);
-  background: transparent;
-  border: none;
-  cursor: pointer;
-  transition: all 0.25s ease;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-.nav-tab:hover { color: #fff; }
-.nav-tab.active {
-  background: linear-gradient(135deg, var(--color-primary), var(--color-secondary));
-  color: #fff;
-  box-shadow: 0 0 20px var(--accent-glow);
-}
 
 /* ─── Dashboard Layout & Sidebar ─────────── */
 .dapp-layout {
@@ -341,47 +312,119 @@ body::after {
   gap: 10px;
 }
 
-/* ─── Feature Cards Grid ─────────────────── */
-.feature-grid {
+/* ─── Coin Selector Grid & Cards ───────────── */
+.coin-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
-  gap: 24px;
-  margin: 36px 0;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: 10px;
+  padding: 4px;
 }
-.feature-card {
-  background: var(--bg-card);
-  backdrop-filter: blur(24px);
-  border: 1px solid var(--border-glass);
-  border-radius: 20px;
-  padding: 32px;
-  transition: all 0.35s cubic-bezier(0.16, 1, 0.3, 1);
-  position: relative;
-  overflow: hidden;
-}
-.feature-card::before {
-  content: '';
-  position: absolute;
-  top: 0; left: 0; right: 0; height: 2px;
-  background: linear-gradient(90deg, transparent, var(--color-primary), var(--color-secondary), transparent);
-  opacity: 0;
-  transition: opacity 0.3s ease;
-}
-.feature-card:hover {
-  transform: translateY(-6px);
-  border-color: rgba(59, 130, 246, 0.4);
-  box-shadow: 0 20px 40px rgba(59, 130, 246, 0.15);
-}
-.feature-card:hover::before { opacity: 1; }
 
-.icon-box {
-  width: 50px; height: 50px;
+.coin-card {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-glass);
   border-radius: 14px;
-  background: rgba(59, 130, 246, 0.12);
-  border: 1px solid rgba(59, 130, 246, 0.3);
-  display: flex; align-items: center; justify-content: center;
+  padding: 12px 14px;
+  text-align: left;
+  cursor: pointer;
+  transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  outline: none;
+}
+
+.coin-card:hover {
+  background: var(--bg-card-hover);
+  border-color: rgba(59, 130, 246, 0.4);
+  transform: translateY(-2px);
+}
+
+.coin-card.active {
+  background: linear-gradient(135deg, rgba(59, 130, 246, 0.2), rgba(168, 85, 247, 0.15));
+  border: 1px solid var(--color-primary);
+  box-shadow: 0 0 20px rgba(59, 130, 246, 0.3);
+}
+
+.coin-card > div:first-child {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+}
+
+.coin-sym {
+  font-family: var(--font-mono);
+  font-weight: 800;
+  font-size: 14px;
+  color: #fff;
+}
+
+.coin-change {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.coin-name {
+  font-size: 11px;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.coin-price {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  font-weight: 700;
   color: var(--color-primary);
-  margin-bottom: 20px;
-  box-shadow: 0 0 20px rgba(59, 130, 246, 0.2);
+  margin-top: 2px;
+}
+
+/* ─── Strategy Selector Grid & Cards ───────── */
+.strat-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 14px;
+}
+
+.strat-card {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-glass);
+  border-radius: 16px;
+  padding: 18px 20px;
+  cursor: pointer;
+  transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+}
+
+.strat-card:hover {
+  background: var(--bg-card-hover);
+  border-color: rgba(168, 85, 247, 0.4);
+  transform: translateY(-2px);
+}
+
+.strat-card.active {
+  background: linear-gradient(135deg, rgba(59, 130, 246, 0.18), rgba(168, 85, 247, 0.18));
+  border: 1px solid var(--color-secondary);
+  box-shadow: 0 0 24px rgba(168, 85, 247, 0.25);
+}
+
+.strat-title {
+  font-family: var(--font-display);
+  font-size: 15px;
+  font-weight: 700;
+  color: #fff;
+}
+
+.strat-desc {
+  font-size: 12px;
+  color: var(--text-secondary);
+  line-height: 1.5;
+  margin-top: 4px;
 }
 
 /* ─── Buttons ────────────────────────────── */
