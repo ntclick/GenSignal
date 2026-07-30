@@ -410,29 +410,42 @@ function GenSignalAppContent() {
 
         // Step 2: x402 Payment — sent DIRECTLY from user's MetaMask wallet on GenLayer Bradbury
         setExecutionStep(`STEP 01: Executing x402 Micropayment (${stratObj.fee}) from your wallet…`)
-        addLog(`💸 [Step 2/3] Sending x402 payment (${stratObj.fee}) from your wallet → SignalTreasury…`, 'hi')
+        addLog(`💸 [Step 2/3] Fetching dynamic x402 quote & Treasury address from backend…`, 'hi')
 
         const signingWalletAddr = currentAddress || activeAddress
-        const feeWei = FEE_WEI_BY_STRATEGY[selectedStrategy] || '50000000000000000'
+        let dynamicTreasury = TREASURY_ADDRESS
+        let dynamicFeeWei = FEE_WEI_BY_STRATEGY[selectedStrategy] || '50000000000000000'
+
+        try {
+          const quoteRes = await fetch(`${activeBackendUrl}/api/x402/quote?network=${activeNetwork}`).catch(() => null)
+          if (quoteRes && quoteRes.ok) {
+            const quoteData = await quoteRes.json().catch(() => null)
+            if (quoteData) {
+              if (quoteData.treasury) dynamicTreasury = quoteData.treasury
+              if (quoteData.fee_wei) dynamicFeeWei = quoteData.fee_wei
+            }
+          }
+        } catch (qErr) {}
+
         let treasuryTxHash = null
 
         if (window.ethereum && signingWalletAddr) {
           // Ensure the user is on Bradbury network before sending
           await ensureBradburyNetwork()
 
-          addLog(`🔑 MetaMask: Awaiting GEN transfer approval (${stratObj.fee} → Treasury)…`, 'hi')
+          addLog(`🔑 MetaMask: Awaiting GEN transfer approval (${stratObj.fee} → ${dynamicTreasury.slice(0, 10)}…)…`, 'hi')
           try {
             treasuryTxHash = await window.ethereum.request({
               method: 'eth_sendTransaction',
               params: [{
                 from: signingWalletAddr,
-                to: TREASURY_ADDRESS,
-                value: '0x' + BigInt(feeWei).toString(16),
+                to: dynamicTreasury,
+                value: '0x' + BigInt(dynamicFeeWei).toString(16),
                 gas: '0x5208', // 21000 standard transfer
                 chainId: BRADBURY_CHAIN_ID_HEX
               }]
             })
-            addLog(`✔ MetaMask payment confirmed! Tx: ${treasuryTxHash.slice(0, 18)}…`, 'hi')
+            addLog(`✔ MetaMask payment confirmed! User Tx Hash: ${treasuryTxHash}`, 'hi')
           } catch (sendErr) {
             // User rejected MetaMask payment — fall back to backend-side payment
             addLog(`⚠️ MetaMask payment declined: ${sendErr.message}. Using backend wallet as fallback…`, 'warn')

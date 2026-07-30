@@ -396,7 +396,7 @@ def get_x402_quote(network: Optional[str] = "bradbury"):
         "native_currency": NATIVE_TOKEN_SYMBOL,
         "fee_gen": X402_FEE_GEN,
         "fee_wei": str(X402_FEE_WEI),
-        "treasury": TREASURY_ADDRESS,
+        "treasury": str(_DEPLOYED_TREASURY_ADDRESS or TREASURY_ADDRESS),
         "network": network
     }
 
