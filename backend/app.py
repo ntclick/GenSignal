@@ -753,6 +753,47 @@ async def evaluate_signal(body: EvaluateRequest):
             args=[checksum_identity, pair]
         )
         if not is_paid:
+            # Check if MetaMask transaction hash was provided to verify and register it
+            clean_pay_hash = _clean_tx_hash(payment_tx)
+            if clean_pay_hash and clean_pay_hash.startswith("0x") and len(clean_pay_hash) >= 60:
+                print(f"🔍 Found payment transaction hash {clean_pay_hash}. Verifying on-chain...")
+                try:
+                    tx_data = client.get_transaction(clean_pay_hash)
+                    if tx_data:
+                        tx_from = _to_checksum(getattr(tx_data, "from_address", getattr(tx_data, "from", "")))
+                        tx_to = _to_checksum(getattr(tx_data, "to_address", getattr(tx_data, "to", "")))
+                        tx_value = int(getattr(tx_data, "value", 0))
+                        
+                        strategy_lower = str(body.strategy).lower()
+                        expected_fee = 80_000_000_000_000_000 if any(s in strategy_lower for s in ["ichimoku", "structure", "smc", "liquidity", "vwap"]) else 50_000_000_000_000_000
+
+                        print(f"Verification: from={tx_from} vs {checksum_identity}, to={tx_to} vs {TREASURY_ADDRESS}, value={tx_value} (expected >= {expected_fee})")
+                        
+                        if tx_from == checksum_identity and tx_to == _to_checksum(TREASURY_ADDRESS) and tx_value >= expected_fee:
+                            print(f"✅ Payment transaction verified! Registering on treasury contract...")
+                            reg_tx, latency = execute_write_contract_with_retry(
+                                client=client,
+                                address=TREASURY_ADDRESS,
+                                function_name="pay_for_signal",
+                                args=[checksum_identity, pair],
+                                value=0
+                            )
+                            if reg_tx:
+                                print(f"🎉 Registered payment on-chain: {reg_tx}")
+                                client.wait_for_transaction_receipt(
+                                    transaction_hash=reg_tx,
+                                    status=TransactionStatus.ACCEPTED
+                                )
+                                # Re-check payment
+                                is_paid = client.read_contract(
+                                    address=TREASURY_ADDRESS,
+                                    function_name="is_query_paid",
+                                    args=[checksum_identity, pair]
+                                )
+                except Exception as ve:
+                    print(f"⚠️ Payment transaction verification error: {ve}")
+
+        if not is_paid:
             print(f"❌ Payment verification failed for user {checksum_identity} and pair {pair}")
             raise HTTPException(
                 status_code=402,
