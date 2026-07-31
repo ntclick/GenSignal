@@ -66,16 +66,37 @@ TIMEFRAME CAPS (hard limits on confidence):
   - 4h swing: max confidence = 82
   - 1d position: max confidence = 78
 
+TRADE LEVEL CALCULATION (from ATR — MANDATORY when verdict is Long or Short):
+  - entry: use the current_price from market data
+  - For Long: takeProfit = entry + (2.0 * ATR14), stopLoss = entry - (1.0 * ATR14)
+  - For Short: takeProfit = entry - (2.0 * ATR14), stopLoss = entry + (1.0 * ATR14)
+  - For Neutral/Skip: set entry=current_price, takeProfit=null, stopLoss=null
+  - Round prices to the same decimal precision as current_price
+
+EXPERT SUMMARY RULES:
+  - Write exactly 1 sentence (max 25 words) summarizing the quantitative thesis
+  - Must cite the 2 most important indicator values
+  - Example: "RSI(14) at 64.2 with EMA stack bullish and RVOL 1.4x supports a cautious long bias above EMA20."
+  - NO promotional language ("great setup", "strong buy", "moon")
+
 ═══════════════════════════════════════════════════════════════════════════
 OUTPUT FORMAT (strict JSON — no markdown, no extra text):
 ═══════════════════════════════════════════════════════════════════════════
 {{
   "verdict": "<Long|Short|Neutral|Skip>",
   "confidence": <int 0-100, subject to caps above>,
+  "expert_summary": "<1 sentence quantitative thesis citing specific indicator values>",
   "supporting": ["<specific indicator evidence with value>", "<second reason>"],
   "counterpoint": "<concrete risk or conflicting data point — be specific>",
   "invalidation": "<exact price level or indicator threshold that voids this signal>",
-  "source": "Binance OHLCV klines"
+  "trade": {{
+    "entry": <current_price as float>,
+    "takeProfit": <float or null>,
+    "stopLoss": <float or null>,
+    "riskReward": <float, ratio TP_distance / SL_distance, or null>
+  }},
+  "source": "Binance OHLCV klines",
+  "source_type": "GenLayer LLM Consensus"
 }}
 
 Rules for supporting reasons:
@@ -143,11 +164,22 @@ def _exec_once(symbol: str, pair: str, strategy: str,
         result_dict = {
             "verdict": "Skip",
             "confidence": 0,
+            "expert_summary": "Execution output non-parseable — signal skipped.",
             "supporting": ["Execution output non-parseable"],
             "counterpoint": "Malformed LLM response",
             "invalidation": "Invalid schema",
-            "source": "GenLayer Oracle Fallback"
+            "trade": {"entry": None, "takeProfit": None, "stopLoss": None, "riskReward": None},
+            "source": "GenLayer Oracle Fallback",
+            "source_type": "GenLayer LLM Consensus"
         }
+
+    # Ensure required fields are always present
+    if "expert_summary" not in result_dict:
+        result_dict["expert_summary"] = ""
+    if "trade" not in result_dict or not isinstance(result_dict["trade"], dict):
+        result_dict["trade"] = {"entry": None, "takeProfit": None, "stopLoss": None, "riskReward": None}
+    if "source_type" not in result_dict:
+        result_dict["source_type"] = "GenLayer LLM Consensus"
 
     return json.dumps(result_dict)
 
@@ -202,7 +234,10 @@ class SignalOracle(gl.Contract):
     supporting_json: str
     counterpoint: str
     invalidation: str
+    expert_summary: str
+    trade_json: str
     source: str
+    source_type: str
     result_json: str
     evaluator: Address
 
@@ -219,7 +254,10 @@ class SignalOracle(gl.Contract):
         self.supporting_json = "[]"
         self.counterpoint = ""
         self.invalidation = ""
+        self.expert_summary = ""
+        self.trade_json = "{}"
         self.source = ""
+        self.source_type = ""
         self.result_json = "{}"
         self.evaluator = gl.message.sender_address
 
@@ -304,7 +342,13 @@ class SignalOracle(gl.Contract):
             data["supporting"] = []
         data["counterpoint"] = self.counterpoint
         data["invalidation"] = self.invalidation
+        data["expert_summary"] = self.expert_summary
+        try:
+            data["trade"] = json.loads(self.trade_json) if self.trade_json and self.trade_json != "{}" else {}
+        except Exception:
+            data["trade"] = {}
         data["source"] = self.source
+        data["source_type"] = self.source_type
         data["evaluator"] = str(self.evaluator)
         return data
 
@@ -318,7 +362,11 @@ class SignalOracle(gl.Contract):
         self.supporting_json = json.dumps(result.get("supporting", []))
         self.counterpoint = str(result.get("counterpoint", ""))
         self.invalidation = str(result.get("invalidation", ""))
+        self.expert_summary = str(result.get("expert_summary", ""))
+        trade = result.get("trade", {})
+        self.trade_json = json.dumps(trade) if isinstance(trade, dict) else "{}"
         self.source = str(result.get("source", "Binance"))
+        self.source_type = str(result.get("source_type", "GenLayer LLM Consensus"))
         self.result_json = json.dumps(result)
         self.evaluated = True
         self.evaluator = gl.message.sender_address

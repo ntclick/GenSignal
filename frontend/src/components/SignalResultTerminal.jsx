@@ -162,22 +162,42 @@ On-Chain Proof: ${txHash ? `${explorerUrl}/tx/${txHash}` : 'GenLayer Bradbury Te
                 >
                   {selectedTimeframe.toUpperCase()}
                 </span>
-                <span
-                  style={{
-                    fontSize: 11,
-                    fontWeight: 700,
-                    color: '#10b981',
-                    background: 'rgba(16,185,129,0.12)',
-                    padding: '3px 10px',
-                    borderRadius: 99,
-                    border: '1px solid rgba(16,185,129,0.3)',
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    gap: 6
-                  }}
-                >
-                  <ShieldCheck size={12} /> Verified On-Chain
-                </span>
+                {/* Dynamic Source Badge: LLM Consensus vs Binance Fallback */}
+                {proof?.fallback ? (
+                  <span
+                    style={{
+                      fontSize: 11,
+                      fontWeight: 700,
+                      color: '#f59e0b',
+                      background: 'rgba(245,158,11,0.12)',
+                      padding: '3px 10px',
+                      borderRadius: 99,
+                      border: '1px solid rgba(245,158,11,0.35)',
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: 6
+                    }}
+                  >
+                    <Activity size={12} /> Binance Engine Fallback
+                  </span>
+                ) : (
+                  <span
+                    style={{
+                      fontSize: 11,
+                      fontWeight: 700,
+                      color: '#10b981',
+                      background: 'rgba(16,185,129,0.12)',
+                      padding: '3px 10px',
+                      borderRadius: 99,
+                      border: '1px solid rgba(16,185,129,0.3)',
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: 6
+                    }}
+                  >
+                    <ShieldCheck size={12} /> GenLayer LLM Consensus
+                  </span>
+                )}
               </div>
               <div style={{ fontSize: 13, color: 'var(--text-muted)', marginTop: 4 }}>
                 Current Price: <strong style={{ color: '#fff', fontFamily: 'var(--font-mono)' }}>{formatUsd(currentPrice)}</strong>
@@ -390,11 +410,148 @@ On-Chain Proof: ${txHash ? `${explorerUrl}/tx/${txHash}` : 'GenLayer Bradbury Te
             </div>
           </div>
 
-          {/* ── 7. ON-CHAIN GENLAYER CONSENSUS PROOF CARD (Official API Integration) ── */}
+          {/* ── 7. DEEP QUANT AI THESIS ACCORDION (moved up — with compact TX strip inside) ── */}
+          <div style={{ border: '1px solid rgba(168,85,247,0.25)', borderRadius: 16, overflow: 'hidden', marginBottom: 24 }}>
+            <button
+              onClick={() => setShowReasoning(!showReasoning)}
+              style={{
+                width: '100%',
+                background: 'linear-gradient(135deg, rgba(168,85,247,0.08), rgba(59,130,246,0.06))',
+                padding: '14px 20px',
+                border: 'none',
+                color: '#fff',
+                fontWeight: 700,
+                fontSize: 13,
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between'
+              }}
+            >
+              <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <Zap size={15} color="#a855f7" /> Deep Quant AI Thesis & Model Output
+                {/* Source badge inline */}
+                <span style={{
+                  fontSize: 10, fontWeight: 700, fontFamily: 'var(--font-mono)',
+                  padding: '2px 8px', borderRadius: 99,
+                  background: proof?.fallback ? 'rgba(245,158,11,0.15)' : 'rgba(168,85,247,0.15)',
+                  color: proof?.fallback ? '#f59e0b' : '#a855f7',
+                  border: `1px solid ${proof?.fallback ? 'rgba(245,158,11,0.4)' : 'rgba(168,85,247,0.4)'}`
+                }}>
+                  {proof?.fallback ? '📊 Binance Engine' : '🤖 GenLayer LLM'}
+                </span>
+              </span>
+              {showReasoning ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+            </button>
+
+            {showReasoning && (
+              <div style={{ padding: 20, background: '#09090B', borderTop: '1px solid rgba(255,255,255,0.08)' }}>
+
+                {/* Executive Quant Thesis */}
+                {signalReport.expert_summary ? (
+                  <div style={{ marginBottom: 16, padding: 14, background: 'rgba(168,85,247,0.06)', border: '1px solid rgba(168,85,247,0.2)', borderRadius: 12 }}>
+                    <div style={{ fontSize: 10, color: '#a855f7', textTransform: 'uppercase', fontFamily: 'var(--font-mono)', fontWeight: 800, marginBottom: 6, display: 'flex', alignItems: 'center', gap: 6 }}>
+                      <Sparkles size={11} /> {proof?.fallback ? 'Binance Quant Engine Summary' : 'GenLayer LLM Executive Thesis'}
+                    </div>
+                    <div style={{ fontSize: 13, color: '#f8fafc', lineHeight: 1.65, fontStyle: 'italic' }}>
+                      "{signalReport.expert_summary}"
+                    </div>
+                  </div>
+                ) : (
+                  <div style={{ marginBottom: 16, padding: 12, background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)', borderRadius: 12 }}>
+                    <div style={{ fontSize: 12, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>
+                      Executive thesis pending — signal is based on indicator confluence below.
+                    </div>
+                  </div>
+                )}
+
+                {/* Supporting Arguments */}
+                {signalReport.supporting?.length > 0 && (
+                  <div style={{ marginBottom: 16 }}>
+                    <div style={{ fontSize: 10, color: 'var(--text-muted)', textTransform: 'uppercase', fontFamily: 'var(--font-mono)', fontWeight: 700, marginBottom: 8 }}>
+                      Supporting Arguments
+                    </div>
+                    <ul style={{ paddingLeft: 18, fontSize: 13, color: 'var(--text-secondary)', margin: 0 }}>
+                      {signalReport.supporting.map((pt, i) => (
+                        <li key={i} style={{ marginBottom: 6, lineHeight: 1.5 }}>{pt}</li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+
+                {/* ── COMPACT TX STRIP (verify on-chain right here) ────────────── */}
+                <div style={{
+                  borderTop: '1px solid rgba(255,255,255,0.07)',
+                  paddingTop: 12,
+                  display: 'flex',
+                  flexWrap: 'wrap',
+                  gap: 10,
+                  alignItems: 'center',
+                  fontSize: 11,
+                  fontFamily: 'var(--font-mono)',
+                  color: 'var(--text-muted)'
+                }}>
+                  {/* Source badge */}
+                  <span style={{
+                    padding: '3px 10px', borderRadius: 99, fontWeight: 700,
+                    background: proof?.fallback ? 'rgba(245,158,11,0.1)' : 'rgba(16,185,129,0.1)',
+                    color: proof?.fallback ? '#f59e0b' : '#10b981',
+                    border: `1px solid ${proof?.fallback ? 'rgba(245,158,11,0.3)' : 'rgba(16,185,129,0.25)'}`
+                  }}>
+                    {proof?.fallback ? '📊 Binance Fallback Engine' : '🤖 GenLayer LLM Consensus'}
+                  </span>
+
+                  {/* Eval TX */}
+                  {evaluateTxHash && !proof?.fallback && (
+                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                      Eval Tx:
+                      <a
+                        href={`https://explorer-bradbury.genlayer.com/tx/${evaluateTxHash}`}
+                        target="_blank" rel="noopener noreferrer"
+                        style={{ color: '#a855f7', fontWeight: 700, textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 3 }}
+                      >
+                        {evaluateTxHash.slice(0, 10)}…{evaluateTxHash.slice(-5)} <ExternalLink size={11} />
+                      </a>
+                    </span>
+                  )}
+
+                  {/* Contract */}
+                  {contractAddress && !proof?.fallback && (
+                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                      Contract:
+                      <a
+                        href={`https://explorer-bradbury.genlayer.com/address/${contractAddress}`}
+                        target="_blank" rel="noopener noreferrer"
+                        style={{ color: '#06b6d4', fontWeight: 700, textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 3 }}
+                      >
+                        {contractAddress.slice(0, 8)}…{contractAddress.slice(-4)} <ExternalLink size={11} />
+                      </a>
+                    </span>
+                  )}
+
+                  {/* Payment TX */}
+                  {paymentTxHash && (
+                    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                      Payment:
+                      <a
+                        href={`https://zksync-os-testnet-genlayer.explorer.zksync.dev/tx/${paymentTxHash}`}
+                        target="_blank" rel="noopener noreferrer"
+                        style={{ color: '#10b981', fontWeight: 700, textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 3 }}
+                      >
+                        {paymentTxHash.slice(0, 10)}…{paymentTxHash.slice(-5)} <ExternalLink size={11} />
+                      </a>
+                    </span>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* ── 8. ON-CHAIN GENLAYER CONSENSUS PROOF CARD (Full Detail — moved below thesis) ── */}
           <div
             style={{
               background: '#09090B',
-              border: '1px solid rgba(255, 255, 255, 0.08)',
+              border: `1px solid ${proof?.fallback ? 'rgba(245,158,11,0.2)' : 'rgba(255,255,255,0.08)'}`,
               borderRadius: 18,
               padding: 20,
               marginBottom: 24
@@ -402,7 +559,8 @@ On-Chain Proof: ${txHash ? `${explorerUrl}/tx/${txHash}` : 'GenLayer Bradbury Te
           >
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
               <span style={{ fontSize: 12, fontWeight: 700, fontFamily: 'var(--font-mono)', color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', gap: 6 }}>
-                <ShieldCheck size={16} color="#10b981" /> ON-CHAIN GENLAYER CONSENSUS EVIDENCE
+                <ShieldCheck size={16} color={proof?.fallback ? '#f59e0b' : '#10b981'} />
+                {proof?.fallback ? 'BINANCE ENGINE ANALYSIS PROOF' : 'ON-CHAIN GENLAYER CONSENSUS EVIDENCE'}
               </span>
               <span
                 style={{
@@ -411,16 +569,24 @@ On-Chain Proof: ${txHash ? `${explorerUrl}/tx/${txHash}` : 'GenLayer Bradbury Te
                   fontWeight: 800,
                   padding: '4px 10px',
                   borderRadius: 99,
-                  background: 'rgba(16,185,129,0.15)',
-                  color: '#10b981',
-                  border: '1px solid #10b981'
+                  background: proof?.fallback ? 'rgba(245,158,11,0.15)' : 'rgba(16,185,129,0.15)',
+                  color: proof?.fallback ? '#f59e0b' : '#10b981',
+                  border: `1px solid ${proof?.fallback ? '#f59e0b' : '#10b981'}`
                 }}
               >
-                ● CONSENSUS FINALIZED
+                {proof?.fallback ? '⚡ FALLBACK ENGINE ACTIVE' : '● CONSENSUS FINALIZED'}
               </span>
             </div>
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: 10, fontSize: 11, fontFamily: 'var(--font-mono)' }}>
+              {/* Verdict Source */}
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span style={{ color: 'var(--text-muted)' }}>Verdict Source:</span>
+                <span style={{ color: proof?.fallback ? '#f59e0b' : '#a855f7', fontWeight: 700 }}>
+                  {signalReport.source_type || (proof?.fallback ? 'Binance Fallback Engine' : 'GenLayer LLM Consensus')}
+                </span>
+              </div>
+
               {/* Payment Transaction */}
               {paymentTxHash && (
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
@@ -473,7 +639,7 @@ On-Chain Proof: ${txHash ? `${explorerUrl}/tx/${txHash}` : 'GenLayer Bradbury Te
               )}
 
               {/* Evaluation/Consensus Transaction */}
-              {evaluateTxHash && (
+              {evaluateTxHash && !proof?.fallback && (
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8, paddingTop: 4, borderTop: '1px solid rgba(255,255,255,0.04)' }}>
                   <span style={{ color: 'var(--text-muted)' }}>Oracle Evaluation (Consensus) Tx:</span>
                   <a
@@ -492,72 +658,32 @@ On-Chain Proof: ${txHash ? `${explorerUrl}/tx/${txHash}` : 'GenLayer Bradbury Te
                 <span style={{ color: '#fff', fontWeight: 700 }}>GenLayer Bradbury Testnet (Chain ID 4221)</span>
               </div>
 
-              <div style={{ display: 'flex', justifyContent: 'space-between', paddingTop: 4 }}>
-                <span style={{ color: 'var(--text-muted)' }}>Consensus Engine:</span>
-                <span style={{ color: '#a855f7', fontWeight: 700 }}>GenVM Optimistic Democracy (Multi-Validator Consensus)</span>
-              </div>
+              {!proof?.fallback && (
+                <>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', paddingTop: 4 }}>
+                    <span style={{ color: 'var(--text-muted)' }}>Consensus Engine:</span>
+                    <span style={{ color: '#a855f7', fontWeight: 700 }}>GenVM Optimistic Democracy (Multi-Validator Consensus)</span>
+                  </div>
 
-              <div style={{ display: 'flex', justifyContent: 'space-between', paddingTop: 4 }}>
-                <span style={{ color: 'var(--text-muted)' }}>Verification Mechanism:</span>
-                <span style={{ color: '#10b981', fontWeight: 700 }}>GenLayer Validator Consensus Verified</span>
-              </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', paddingTop: 4 }}>
+                    <span style={{ color: 'var(--text-muted)' }}>Verification Mechanism:</span>
+                    <span style={{ color: '#10b981', fontWeight: 700 }}>GenLayer Validator Consensus Verified</span>
+                  </div>
 
-              <div style={{ display: 'flex', justifyContent: 'space-between', paddingTop: 4 }}>
-                <span style={{ color: 'var(--text-muted)' }}>Consensus Rule:</span>
-                <span style={{ color: '#fff', fontWeight: 700 }}>Verdict Confluence & ±10% Confidence Equivalence</span>
-              </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', paddingTop: 4 }}>
+                    <span style={{ color: 'var(--text-muted)' }}>Consensus Rule:</span>
+                    <span style={{ color: '#fff', fontWeight: 700 }}>Verdict Confluence & ±10% Confidence Equivalence</span>
+                  </div>
+                </>
+              )}
+
+              {proof?.fallback && (
+                <div style={{ display: 'flex', justifyContent: 'space-between', paddingTop: 4 }}>
+                  <span style={{ color: 'var(--text-muted)' }}>Fallback Reason:</span>
+                  <span style={{ color: '#f59e0b', fontWeight: 700 }}>GenLayer RPC validator timed out — Binance engine applied</span>
+                </div>
+              )}
             </div>
-          </div>
-
-          {/* ── 8. COLLAPSIBLE AI REASONING ACCORDION ───────────────────────── */}
-          <div style={{ border: '1px solid rgba(255,255,255,0.08)', borderRadius: 16, overflow: 'hidden', marginBottom: 24 }}>
-            <button
-              onClick={() => setShowReasoning(!showReasoning)}
-              style={{
-                width: '100%',
-                background: '#111113',
-                padding: '14px 20px',
-                border: 'none',
-                color: '#fff',
-                fontWeight: 700,
-                fontSize: 13,
-                cursor: 'pointer',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'space-between'
-              }}
-            >
-              <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <Zap size={15} color="#a855f7" /> Deep Quant AI Thesis & Model Output
-              </span>
-              {showReasoning ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
-            </button>
-
-            {showReasoning && (
-              <div style={{ padding: 20, background: '#09090B', borderTop: '1px solid rgba(255,255,255,0.08)' }}>
-                {signalReport.expert_summary && (
-                  <div style={{ marginBottom: 16 }}>
-                    <div style={{ fontSize: 11, color: 'var(--text-muted)', textTransform: 'uppercase', fontFamily: 'var(--font-mono)', fontWeight: 700, marginBottom: 4 }}>
-                      Executive Quant Thesis
-                    </div>
-                    <div style={{ fontSize: 13, color: '#f8fafc', lineHeight: 1.6 }}>"{signalReport.expert_summary}"</div>
-                  </div>
-                )}
-
-                {signalReport.supporting?.length > 0 && (
-                  <div>
-                    <div style={{ fontSize: 11, color: 'var(--text-muted)', textTransform: 'uppercase', fontFamily: 'var(--font-mono)', fontWeight: 700, marginBottom: 4 }}>
-                      Supporting Arguments
-                    </div>
-                    <ul style={{ paddingLeft: 20, fontSize: 13, color: 'var(--text-secondary)' }}>
-                      {signalReport.supporting.map((pt, i) => (
-                        <li key={i} style={{ marginBottom: 4 }}>{pt}</li>
-                      ))}
-                    </ul>
-                  </div>
-                )}
-              </div>
-            )}
           </div>
         </div>
 

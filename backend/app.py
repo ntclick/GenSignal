@@ -1139,17 +1139,42 @@ async def evaluate_signal(body: EvaluateRequest):
         eval_tx_hash = _clean_tx_hash(eval_tx)
         print(f"📜 Evaluation Transaction Hash: {eval_tx_hash}")
 
-        # 4. Wait for the evaluation transaction to be accepted (LLM consensus requires up to 60-90s on testnet)
-        eval_receipt = client.wait_for_transaction_receipt(
-            transaction_hash=eval_tx_hash,
-            status=TransactionStatus.ACCEPTED,
-            retries=30,
-            interval=3000
-        )
-        if not eval_receipt:
-            raise Exception("Failed to retrieve evaluation transaction receipt")
+        # 4. Wait for evaluation tx — smart retry: max 80s, then re-submit once and wait 60s more
+        # retries=20 × interval=4000ms = 80 seconds max for first attempt
+        eval_receipt = None
+        try:
+            eval_receipt = client.wait_for_transaction_receipt(
+                transaction_hash=eval_tx_hash,
+                status=TransactionStatus.ACCEPTED,
+                retries=20,
+                interval=4000
+            )
+        except Exception as wait_err:
+            print(f"⚠️ [Smart Retry] First wait timed out ({wait_err}). Re-submitting evaluate_signal...")
+            try:
+                retry_tx = client.write_contract(
+                    address=contract_address,
+                    function_name="evaluate_signal",
+                    args=[market_summary, body.payment_tx or "", symbol, pair, body.strategy, checksum_identity]
+                )
+                if retry_tx:
+                    retry_tx_hash = _clean_tx_hash(retry_tx)
+                    print(f"📜 Retry Evaluation Tx: {retry_tx_hash}")
+                    eval_tx_hash = retry_tx_hash  # update to latest tx
+                    eval_receipt = client.wait_for_transaction_receipt(
+                        transaction_hash=retry_tx_hash,
+                        status=TransactionStatus.ACCEPTED,
+                        retries=15,
+                        interval=4000
+                    )
+            except Exception as retry_err:
+                print(f"⚠️ [Smart Retry] Retry also timed out: {retry_err}. Triggering fallback engine.")
+                raise retry_err
 
-        # 6. Read the validator-settled trading signal directly from the contract state
+        if not eval_receipt:
+            raise Exception("Failed to retrieve evaluation transaction receipt after retry")
+
+        # 5. Read the validator-settled trading signal directly from the contract state
         print(f"📊 Reading settled signal from contract...")
         signal_report = client.read_contract(
             address=contract_address,
@@ -1255,6 +1280,7 @@ def _generate_fallback_signal(symbol: str, pair: str, strategy: str, timeframe: 
     """
     Fallback Quantitative Engine: Generates an objective, defensible trading signal report
     directly from Binance technical indicators if GenLayer RPC validator consensus times out.
+    Mirrors the full output schema of the GenLayer LLM oracle (expert_summary, trade, source_type).
     """
     is_bull_ema = "Bullish" in ema_trend or "above" in ema_trend
     is_bear_ema = "Bearish" in ema_trend or "below" in ema_trend
@@ -1264,7 +1290,7 @@ def _generate_fallback_signal(symbol: str, pair: str, strategy: str, timeframe: 
 
     score = 0
     supporting = []
-    
+
     # 1. EMA Alignment
     if is_bull_ema:
         score += 1
@@ -1276,10 +1302,10 @@ def _generate_fallback_signal(symbol: str, pair: str, strategy: str, timeframe: 
     # 2. RSI Zone
     if is_bull_rsi:
         score += 1
-        supporting.append(f"RSI (14) at {rsi_14:.1f} — {rsi_zone}")
+        supporting.append(f"RSI(14) at {rsi_14:.1f} — {rsi_zone}")
     elif is_bear_rsi:
         score -= 1
-        supporting.append(f"RSI (14) at {rsi_14:.1f} — {rsi_zone}")
+        supporting.append(f"RSI(14) at {rsi_14:.1f} — {rsi_zone}")
 
     # 3. MACD Momentum
     if is_bull_macd:
@@ -1294,25 +1320,55 @@ def _generate_fallback_signal(symbol: str, pair: str, strategy: str, timeframe: 
     elif last_buy_ratio <= 45.0:
         supporting.append(f"Taker Buy Ratio at {last_buy_ratio:.1f}% — aggressive sell pressure")
 
-    # Determine Verdict
+    # Determine Verdict + Trade Levels from ATR (mirrors oracle prompt logic)
+    tp_price: float = last_price
+    sl_price: float = last_price
+    rr_ratio: float = 2.0
+
     if score >= 2 and rsi_14 < 72:
         verdict = "Long"
         confidence = min(78, 55 + score * 8)
         counterpoint = f"RVOL is {rvol:.2f}x. Daily trend: {daily_trend}."
-        invalidation = f"Clear candle close below support / EMA(20) at ${last_price * 0.985:,.6g}"
+        invalidation = f"Clear candle close below EMA(20) — ATR-based SL at {last_price * 0.985:,.6g}"
+        # ATR-based trade levels: TP = +2×ATR, SL = -1×ATR
+        atr_value = atr_14 if atr_14 > 0 else last_price * (atr_pct / 100)
+        tp_price = last_price + 2.0 * atr_value
+        sl_price = last_price - 1.0 * atr_value
+        expert_summary = (
+            f"RSI(14) at {rsi_14:.1f} ({rsi_zone}) with {ema_trend} and RVOL {rvol:.2f}x "
+            f"supports a cautious long bias; ATR-based TP/SL applied. (Binance Engine)"
+        )
     elif score <= -2 and rsi_14 > 28:
         verdict = "Short"
         confidence = min(78, 55 + abs(score) * 8)
-        counterpoint = f"Potential oversold bounce if volume fails to sustain."
-        invalidation = f"Clear candle close above resistance / EMA(20) at ${last_price * 1.015:,.6g}"
+        counterpoint = "Potential oversold bounce if sell volume fails to sustain below key support."
+        invalidation = f"Clear candle close above EMA(20) — ATR-based SL at {last_price * 1.015:,.6g}"
+        atr_value = atr_14 if atr_14 > 0 else last_price * (atr_pct / 100)
+        tp_price = last_price - 2.0 * atr_value
+        sl_price = last_price + 1.0 * atr_value
+        expert_summary = (
+            f"RSI(14) at {rsi_14:.1f} ({rsi_zone}) with {ema_trend} and RVOL {rvol:.2f}x "
+            f"supports a cautious short bias; ATR-based TP/SL applied. (Binance Engine)"
+        )
     else:
         verdict = "Neutral"
         confidence = 45
         counterpoint = f"Conflicting indicator signals or neutral RSI zone ({rsi_14:.1f}). Capital preservation mode."
-        invalidation = f"Price breakout beyond ATR volatility band (${last_price * 1.02:,.6g} / ${last_price * 0.98:,.6g})"
+        invalidation = f"Price breakout beyond ATR band ({last_price * 1.02:,.6g} / {last_price * 0.98:,.6g})"
+        tp_price = None
+        sl_price = None
+        rr_ratio = None
+        expert_summary = (
+            f"RSI(14) at {rsi_14:.1f} neutral with {ema_trend}; no directional edge detected — "
+            f"standing aside pending clearer confluence. (Binance Engine)"
+        )
 
     if not supporting:
         supporting = [f"RSI(14) neutral at {rsi_14:.1f}", f"EMA structure: {ema_trend}"]
+
+    # Compute R:R ratio for Long/Short
+    if tp_price is not None and sl_price is not None and sl_price != last_price:
+        rr_ratio = round(abs(tp_price - last_price) / abs(last_price - sl_price), 2)
 
     return {
         "symbol": symbol,
@@ -1320,10 +1376,18 @@ def _generate_fallback_signal(symbol: str, pair: str, strategy: str, timeframe: 
         "strategy": strategy,
         "verdict": verdict,
         "confidence": confidence,
+        "expert_summary": expert_summary,
         "supporting": supporting[:3],
         "counterpoint": counterpoint,
         "invalidation": invalidation,
+        "trade": {
+            "entry": last_price,
+            "takeProfit": round(tp_price, 8) if tp_price is not None else None,
+            "stopLoss": round(sl_price, 8) if sl_price is not None else None,
+            "riskReward": rr_ratio
+        },
         "source": "Binance REST API (Fallback Engine)",
+        "source_type": "Binance Fallback Engine",
         "current_price": last_price,
         "indicators": {
             "rsi_14": round(rsi_14, 1),
