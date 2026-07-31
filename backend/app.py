@@ -20,9 +20,6 @@ load_dotenv(dotenv_path=pathlib.Path(__file__).parent.parent / ".env")
 
 PRIVATE_KEY       = os.getenv("GENLAYER_PRIVATE_KEY", "")
 DEFAULT_NETWORK   = os.getenv("GENLAYER_NETWORK", "bradbury").lower()
-GROQ_API_KEY      = os.getenv("GROQ_API_KEY", "")
-GROQ_MODEL        = os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile")
-GROQ_BASE_URL     = os.getenv("GROQ_BASE_URL", "https://api.groq.com/openai/v1")
 COINGECKO_API_KEY = os.getenv("COINGECKO_API_KEY", "")
 
 CONTRACT_ORACLE   = pathlib.Path(__file__).parent.parent / "contracts" / "signal_oracle.py"
@@ -737,179 +734,115 @@ async def evaluate_signal(body: EvaluateRequest):
     except Exception as e:
         market_summary += f" (Market data note: {e})"
 
-    # ── Step 2: Groq LLM Analysis ─────────────────────────────────────────────
-    groq_signal = None
-    if GROQ_API_KEY:
-        try:
-            groq_prompt = f"""
-You are a Senior Quantitative Crypto Trading Desk Head & Market Analyst.
-Analyze the following market indicators and produce an elite trading verdict with structured chart overlays.
-
-Symbol: {symbol}/USDT
-Execution Timeframe: {timeframe.upper()}
-Strategy Engine: {body.strategy}
-Market Technical Metrics:
-{market_summary}
-
-Respond STRICTLY with a valid JSON object matching this exact schema — no markdown formatting:
-{{
-  "signal": {{
-    "symbol": "{symbol}USDT",
-    "direction": "LONG|SHORT|NEUTRAL|SKIP",
-    "confidence": <int 0-100>,
-    "timeframe": "{timeframe.upper()}"
-  }},
-  "trade": {{
-    "entry": {last_price if 'last_price' in locals() else 64484},
-    "takeProfit": <float target price>,
-    "stopLoss": <float stop loss price>,
-    "riskReward": 2.6
-  }},
-  "reasoning": {{
-    "summary": "<Concise 1-sentence executive summary>",
-    "support": [
-      "<Data-backed point 1 citing specific technical indicators>",
-      "<Data-backed point 2 citing market structure levels>"
-    ],
-    "counter": "<Key risk factor or opposing market force>",
-    "invalidation": "<Precise price condition that voids this setup>"
-  }},
-  "metrics": {{
-    "trend": "Bullish|Bearish|Neutral",
-    "rsi": {rsi_14 if 'rsi_14' in locals() else 55},
-    "macd": "Bullish Cross|Bearish Divergence|Neutral",
-    "volume": "High|Medium|Low",
-    "volatility": "High|Medium|Low"
-  }},
-  "chart": {{
-    "timeframe": "{timeframe.upper()}",
-    "overlays": [
-      {{ "type": "entry", "price": {last_price if 'last_price' in locals() else 64484} }},
-      {{ "type": "tp", "price": <float tp price> }},
-      {{ "type": "sl", "price": <float sl price> }},
-      {{ "type": "ema", "period": 20 }},
-      {{ "type": "ema", "period": 50 }},
-      {{ "type": "ema", "period": 200 }},
-      {{ "type": "marker", "title": "EMA Cross", "description": "Bullish confluence at key demand level", "price": {last_price if 'last_price' in locals() else 64484} }}
-    ]
-  }},
-  "verdict": "Long|Short|Neutral|Skip",
-  "confidence": <int 0-100>,
-  "expert_summary": "<A sharp 2-sentence executive verdict written as a Senior Crypto Quant Desk Head>",
-  "supporting": [
-    "<Data-backed point 1>",
-    "<Data-backed point 2>"
-  ],
-  "counterpoint": "<Key risk factor>",
-  "invalidation": "<Precise price condition>",
-  "source": "Binance Live Klines & CoinGecko via Groq {GROQ_MODEL}"
-}}
-"""
-            http_client = _SHARED_HTTP_CLIENT or httpx.AsyncClient(timeout=15.0)
-            gr = await http_client.post(
-                f"{GROQ_BASE_URL}/chat/completions",
-                headers={"Authorization": f"Bearer {GROQ_API_KEY}"},
-                json={
-                    "model": GROQ_MODEL,
-                    "messages": [{"role": "user", "content": groq_prompt}],
-                    "response_format": {"type": "json_object"}
-                }
-            )
-            if gr.status_code == 200:
-                content = gr.json()["choices"][0]["message"]["content"]
-                groq_signal = json.loads(content)
-                groq_signal["pair"] = f"{symbol}/USDT"
-                groq_signal["strategy"] = body.strategy
-                groq_signal["user_identity"] = user_identity
-        except Exception as ge:
-            print(f"[Groq Note]: {ge}")
-
-    # ── Step 3: GenLayer Oracle Contract Deployment & On-Chain Consensus ─────
-    tx_hash = None
+    # ── Step 2: GenLayer Oracle Write/Read Lifecycle (Consensus-Settled Only) ──
     contract_address = None
+    deploy_tx_hash = None
+    eval_tx_hash = None
     signal_report = None
 
     try:
         client = get_singleton_client(network)
-        code = CONTRACT_ORACLE.read_text(encoding="utf-8")
         checksum_identity = _to_checksum(user_identity) if _is_valid_contract_address(user_identity) else ""
+        pair = f"{symbol}/USDT"
+
+        # 1. Verify payment on-chain via SignalTreasury contract
+        print(f"🔒 Verifying payment on-chain for user: {checksum_identity}, pair: {pair}...")
+        is_paid = client.read_contract(
+            address=TREASURY_ADDRESS,
+            function_name="is_query_paid",
+            args=[checksum_identity, pair]
+        )
+        if not is_paid:
+            print(f"❌ Payment verification failed for user {checksum_identity} and pair {pair}")
+            raise HTTPException(
+                status_code=402,
+                detail=f"GenLayer x402 Micropayment not verified on-chain. Please complete payment for {pair} first."
+            )
+
+        # 2. Deploy a new SignalOracle instance
+        print(f"🚀 Deploying SignalOracle for {symbol} / {body.strategy}...")
+        code = CONTRACT_ORACLE.read_text(encoding="utf-8")
         deploy_tx = client.deploy_contract(
             code=code,
-            args=[symbol, f"{symbol}/USDT", body.strategy, checksum_identity]
+            args=[symbol, pair, body.strategy, checksum_identity]
         )
-        if deploy_tx:
-            deploy_tx_str = str(deploy_tx).strip()
-            print(f"📜 [Evaluate] SignalOracle deploy tx: {deploy_tx_str}")
-            tx_hash = deploy_tx_str
-            
-            # 1. Resolve contract address on-chain
-            resolved_addr = _resolve_contract_address_from_rpc_sync(tx_hash)
-            if resolved_addr:
-                contract_address = resolved_addr
-                print(f"✅ [Evaluate] Resolved contract address: {contract_address}")
-                
-                # 2. Call evaluate_signal write method on-chain
-                eval_tx, latency = execute_write_contract_with_retry(
-                    client=client,
-                    address=contract_address,
-                    function_name="evaluate_signal",
-                    args=[market_summary, body.payment_tx or ""],
-                    value=0
-                )
-                if eval_tx:
-                    print(f"⚡ [Evaluate] evaluate_signal tx: {eval_tx}")
-                    tx_hash = eval_tx
-                    
-                    # 3. Wait for the transaction status of the call to be accepted/finalized
-                    is_finalized = _wait_for_transaction_finalized(client, eval_tx)
-                    if is_finalized:
-                        print("🎉 [Evaluate] evaluate_signal transaction settled on-chain!")
-                        # 4. Read the validator-settled trading signal directly from the contract state
-                        try:
-                            signal_report = _read_signal(client, contract_address)
-                            print("📊 [Evaluate] Successfully read validator-settled signal from contract storage!")
-                        except Exception as re:
-                            print(f"⚠️ Error reading signal from contract storage: {re}")
-    except Exception as ge:
-        print(f"[Oracle Execution Note]: {ge}")
+        if not deploy_tx:
+            raise Exception("Contract deployment failed: no transaction hash returned from RPC")
 
-    clean_tx_hash = _clean_tx_hash(tx_hash)
-    clean_payment_tx = _clean_tx_hash(body.payment_tx) if body.payment_tx else None
+        deploy_tx_hash = _clean_tx_hash(deploy_tx)
+        print(f"📜 Deployment Transaction Hash: {deploy_tx_hash}")
 
-    if not clean_tx_hash:
-        clean_tx_hash = clean_payment_tx
+        # 3. Wait for the deployment transaction receipt
+        deploy_receipt = client.wait_for_transaction_receipt(
+            transaction_hash=deploy_tx_hash,
+            status=TransactionStatus.ACCEPTED
+        )
+        if not deploy_receipt or not getattr(deploy_receipt, "data", None):
+            raise Exception("Failed to retrieve deployment transaction receipt")
 
-    # ── Step 4: Fallback to Groq result if on-chain path failed ──────────────
-    if not signal_report:
-        print("⚠️ [Evaluate] On-chain read failed or timed out. Falling back to structured response.")
-        signal_report = groq_signal or {
-            "symbol": symbol,
-            "pair": f"{symbol}/USDT",
-            "strategy": body.strategy,
-            "user_identity": user_identity,
-            "payment_tx": body.payment_tx,
-            "verdict": "Long" if symbol in ["BTC", "ETH", "SOL", "LINK", "SUI", "NEAR"] else "Neutral",
-            "confidence": 82,
-            "expert_summary": f"Quant Analysis ({symbol}/USDT · {timeframe.upper()}): Technical indicators exhibit structured momentum with RSI(14) in neutral-to-bullish expansion. Key volume levels support primary directional bias.",
-            "supporting": [
-                f"{symbol}/USDT evaluated via Groq ({GROQ_MODEL}).",
-                "EMA trend and market momentum analysis complete."
-            ],
-            "counterpoint": "Macro volatility or sudden Bitcoin dominance shift may impact timeframe momentum.",
-            "invalidation": f"Price candle close beyond 20-period {timeframe.upper()} moving average.",
-            "source": f"Binance Klines + Groq {GROQ_MODEL}"
+        contract_address = deploy_receipt.data.get("contract_address")
+        if not contract_address or not _is_valid_contract_address(contract_address):
+            raise Exception(f"Failed to resolve contract address from deployment receipt: {deploy_receipt.data}")
+        print(f"✅ Resolved Contract Address: {contract_address}")
+
+        # 4. Execute evaluate_signal on-chain to trigger validator consensus
+        print(f"⚡ Executing evaluate_signal on-chain...")
+        eval_tx = client.write_contract(
+            address=contract_address,
+            function_name="evaluate_signal",
+            args=[market_summary, body.payment_tx or ""]
+        )
+        if not eval_tx:
+            raise Exception("Failed to execute evaluate_signal: no transaction hash returned from RPC")
+
+        eval_tx_hash = _clean_tx_hash(eval_tx)
+        print(f"📜 Evaluation Transaction Hash: {eval_tx_hash}")
+
+        # 5. Wait for the evaluation transaction to be accepted
+        eval_receipt = client.wait_for_transaction_receipt(
+            transaction_hash=eval_tx_hash,
+            status=TransactionStatus.ACCEPTED
+        )
+        if not eval_receipt:
+            raise Exception("Failed to retrieve evaluation transaction receipt")
+
+        # 6. Read the validator-settled trading signal directly from the contract state
+        print(f"📊 Reading settled signal from contract...")
+        signal_report = client.read_contract(
+            address=contract_address,
+            function_name="get_signal",
+            args=[]
+        )
+        if not signal_report or not isinstance(signal_report, dict):
+            raise Exception("Invalid or empty signal report returned from contract view method")
+        
+        print("🎉 Successfully retrieved validator-settled signal from GenLayer network!")
+
+        return {
+            "contract_address": contract_address,
+            "evaluate_tx_hash": eval_tx_hash,
+            "deployment_tx_hash": deploy_tx_hash,
+            "payment_tx_hash": _clean_tx_hash(body.payment_tx) if body.payment_tx else None,
+            "validator_result": signal_report,
+            "proof": {
+                "source": "GenLayer Validator Consensus",
+                "consensus": True,
+                "contract_method": "evaluate_signal",
+                "read_method": "get_signal",
+                "payment_verified": True,
+                "oracle": "GenLayer LLM Oracle"
+            },
+            "signal": signal_report
         }
 
-    return {
-        "tx_hash": clean_tx_hash,
-        "payment_tx_hash": clean_payment_tx or clean_tx_hash,
-        "contract_address": contract_address,
-        "network": network,
-        "groq_model": GROQ_MODEL,
-        "native_fee_paid": f"{X402_FEE_GEN} {NATIVE_TOKEN_SYMBOL}",
-        "user_identity": user_identity,
-        "signal": signal_report
-    }
+    except HTTPException as he:
+        raise he
+    except Exception as e:
+        print(f"❌ GenLayer on-chain oracle execution failed: {e}")
+        return {
+            "status": "oracle_failed",
+            "reason": f"Validator consensus failed: {str(e)}"
+        }
 
 def _read_signal(client, address: str) -> dict:
     res = client.read_contract(address=address, function_name="get_signal", args=[])
