@@ -566,6 +566,38 @@ def _resolve_contract_address_from_rpc_sync(tx_hash: str, max_attempts: int = 30
 
     return None
 
+def _wait_for_transaction_finalized(client, tx_hash: str, max_attempts: int = 45, delay: int = 2) -> bool:
+    """
+    Polls the GenLayer Node RPC via gen_getTransactionStatus to wait until a
+    transaction is finalized/accepted, or fails.
+    """
+    import time as _time
+    tx_clean = str(tx_hash).strip()
+    for attempt in range(1, max_attempts + 1):
+        try:
+            payload = {
+                "jsonrpc": "2.0",
+                "method": "gen_getTransactionStatus",
+                "params": [{"txId": tx_clean}],
+                "id": attempt
+            }
+            resp = httpx.post(BRADBURY_RPC_URL, json=payload, timeout=8.0)
+            if resp.status_code == 200:
+                result = resp.json().get("result") or {}
+                status = result.get("status")
+                print(f"  ⌛ [RPC wait_for_tx #{attempt}] Status: {status}")
+                if status in ["FINALIZED", "ACCEPTED", "SUCCESS"]:
+                    return True
+                if status in ["CANCELED", "FAILED"]:
+                    print(f"  ❌ Transaction failed/canceled: {tx_clean}")
+                    return False
+        except Exception as e:
+            print(f"  ⚠️ Error polling transaction status: {e}")
+        
+        if attempt < max_attempts:
+            _time.sleep(delay)
+    return False
+
 
 
 @app.post("/api/signal/pay")
@@ -809,24 +841,47 @@ Respond STRICTLY with a valid JSON object matching this exact schema — no mark
             deploy_tx_str = str(deploy_tx).strip()
             print(f"📜 [Evaluate] SignalOracle deploy tx: {deploy_tx_str}")
             tx_hash = deploy_tx_str
-            signal_report = groq_signal
-            if signal_report:
-                signal_report["user_identity"] = user_identity
+            
+            # 1. Resolve contract address on-chain
+            resolved_addr = _resolve_contract_address_from_rpc_sync(tx_hash)
+            if resolved_addr:
+                contract_address = resolved_addr
+                print(f"✅ [Evaluate] Resolved contract address: {contract_address}")
+                
+                # 2. Call evaluate_signal write method on-chain
+                eval_tx, latency = execute_write_contract_with_retry(
+                    client=client,
+                    address=contract_address,
+                    function_name="evaluate_signal",
+                    args=[market_summary, body.payment_tx or ""],
+                    value=0
+                )
+                if eval_tx:
+                    print(f"⚡ [Evaluate] evaluate_signal tx: {eval_tx}")
+                    tx_hash = eval_tx
+                    
+                    # 3. Wait for the transaction status of the call to be accepted/finalized
+                    is_finalized = _wait_for_transaction_finalized(client, eval_tx)
+                    if is_finalized:
+                        print("🎉 [Evaluate] evaluate_signal transaction settled on-chain!")
+                        # 4. Read the validator-settled trading signal directly from the contract state
+                        try:
+                            signal_report = _read_signal(client, contract_address)
+                            print("📊 [Evaluate] Successfully read validator-settled signal from contract storage!")
+                        except Exception as re:
+                            print(f"⚠️ Error reading signal from contract storage: {re}")
     except Exception as ge:
         print(f"[Oracle Execution Note]: {ge}")
-        signal_report = groq_signal
-        if signal_report:
-            signal_report["user_identity"] = user_identity
 
     clean_tx_hash = _clean_tx_hash(tx_hash)
     clean_payment_tx = _clean_tx_hash(body.payment_tx) if body.payment_tx else None
 
-    # If oracle consensus deployment hash is unavailable, fallback to real user payment tx hash (NEVER generate fake hashes)
     if not clean_tx_hash:
         clean_tx_hash = clean_payment_tx
 
-    # ── Step 4: Fallback to Groq result ──────────────────────────────────────
+    # ── Step 4: Fallback to Groq result if on-chain path failed ──────────────
     if not signal_report:
+        print("⚠️ [Evaluate] On-chain read failed or timed out. Falling back to structured response.")
         signal_report = groq_signal or {
             "symbol": symbol,
             "pair": f"{symbol}/USDT",

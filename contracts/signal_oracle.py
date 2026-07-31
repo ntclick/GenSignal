@@ -43,6 +43,7 @@ class SignalOracle(gl.Contract):
     counterpoint: str
     invalidation: str
     source: str
+    result_json: str
     evaluator: Address
 
     def __init__(self, symbol: str, pair: str, strategy: str, user_identity: str = ""):
@@ -59,6 +60,7 @@ class SignalOracle(gl.Contract):
         self.counterpoint = ""
         self.invalidation = ""
         self.source = ""
+        self.result_json = "{}"
         self.evaluator = gl.message.sender_address
 
     @gl.public.write
@@ -109,22 +111,31 @@ class SignalOracle(gl.Contract):
     @gl.public.view
     def get_signal(self) -> dict:
         """Returns the consensus trading signal report settled on-chain."""
-        return {
-            "symbol": self.symbol,
-            "pair": self.pair,
-            "strategy": self.strategy,
-            "user_identity": str(self.user_identity),
-            "payment_tx": self.payment_tx,
-            "paid": self.paid,
-            "evaluated": self.evaluated,
-            "verdict": self.verdict,
-            "confidence": self.confidence,
-            "supporting": json.loads(self.supporting_json),
-            "counterpoint": self.counterpoint,
-            "invalidation": self.invalidation,
-            "source": self.source,
-            "evaluator": str(self.evaluator),
-        }
+        data = {}
+        try:
+            if self.result_json and self.result_json != "{}":
+                data = json.loads(self.result_json)
+        except Exception:
+            pass
+
+        data["symbol"] = self.symbol
+        data["pair"] = self.pair
+        data["strategy"] = self.strategy
+        data["user_identity"] = str(self.user_identity)
+        data["payment_tx"] = self.payment_tx
+        data["paid"] = self.paid
+        data["evaluated"] = self.evaluated
+        data["verdict"] = self.verdict
+        data["confidence"] = int(self.confidence)
+        try:
+            data["supporting"] = json.loads(self.supporting_json)
+        except Exception:
+            data["supporting"] = []
+        data["counterpoint"] = self.counterpoint
+        data["invalidation"] = self.invalidation
+        data["source"] = self.source
+        data["evaluator"] = str(self.evaluator)
+        return data
 
     def _apply_result(self, result: dict) -> None:
         self.verdict = str(result.get("verdict", "Skip"))
@@ -133,6 +144,7 @@ class SignalOracle(gl.Contract):
         self.counterpoint = str(result.get("counterpoint", ""))
         self.invalidation = str(result.get("invalidation", ""))
         self.source = str(result.get("source", "Binance"))
+        self.result_json = json.dumps(result)
         self.evaluated = True
 
 
