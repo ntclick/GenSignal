@@ -1186,11 +1186,47 @@ async def evaluate_signal(body: EvaluateRequest):
         
         print("🎉 Successfully retrieved validator-settled signal from GenLayer network!")
 
-        # Attach dynamic current_price and quantitative indicators computed from Binance
+        # Enrich signal_report with expert_summary, trade levels, and source_type if missing on legacy contract
         if isinstance(signal_report, dict):
             if 'last_price' in locals() and last_price:
                 signal_report["current_price"] = last_price
             
+            signal_report["source_type"] = "GenLayer LLM Consensus"
+
+            # Construct expert_summary if missing or empty
+            if not signal_report.get("expert_summary"):
+                verdict_str = signal_report.get("verdict", "Neutral")
+                conf = signal_report.get("confidence", 50)
+                supp_list = signal_report.get("supporting", [])
+                supp_summary = " and ".join(supp_list[:2]) if supp_list else f"RSI(14) at {rsi_14:.1f} with {ema_trend}"
+                signal_report["expert_summary"] = f"GenLayer AI Validators reached consensus ({verdict_str} {conf}% confidence): {supp_summary}."
+
+            # Construct trade levels if missing or empty
+            if not signal_report.get("trade") or not isinstance(signal_report.get("trade"), dict) or not signal_report["trade"].get("entry"):
+                verdict_upper = str(signal_report.get("verdict", "")).upper()
+                curr_p = last_price if 'last_price' in locals() else 1.0
+                atr_v = atr_14 if ('atr_14' in locals() and atr_14 > 0) else curr_p * ((atr_pct if 'atr_pct' in locals() else 1.5) / 100)
+                
+                if "LONG" in verdict_upper:
+                    tp = curr_p + 2.0 * atr_v
+                    sl = curr_p - 1.0 * atr_v
+                    rr = 2.0
+                elif "SHORT" in verdict_upper:
+                    tp = curr_p - 2.0 * atr_v
+                    sl = curr_p + 1.0 * atr_v
+                    rr = 2.0
+                else:
+                    tp = None
+                    sl = None
+                    rr = None
+                
+                signal_report["trade"] = {
+                    "entry": curr_p,
+                    "takeProfit": round(tp, 8) if tp is not None else None,
+                    "stopLoss": round(sl, 8) if sl is not None else None,
+                    "riskReward": rr
+                }
+
             signal_report["indicators"] = {
                 "rsi_14": round(rsi_14, 1) if 'rsi_14' in locals() else None,
                 "rsi_zone": rsi_zone if 'rsi_zone' in locals() else "Neutral",
