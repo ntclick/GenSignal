@@ -6,7 +6,7 @@ import {
 
 export const TradingViewLightweightChart = ({
   symbol = 'BTCUSDT',
-  currentPrice = 64484.0,
+  currentPrice = 1.0,
   overlays = [],
   tradeData = null
 }) => {
@@ -94,8 +94,18 @@ export const TradingViewLightweightChart = ({
         })
       }
 
+      // Helper function to format price labels on chart lines appropriately
+      const formatChartPriceLabel = (val) => {
+        if (!val || isNaN(val)) return '0.00'
+        const num = Number(val)
+        if (num < 0.00001) return num.toFixed(8)
+        if (num < 0.001) return num.toFixed(6)
+        if (num < 1) return num.toFixed(4)
+        return num.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+      }
+
       // Generate synthetic historical candles around currentPrice
-      const basePrice = Number(currentPrice) || 64484.0
+      const basePrice = Number(currentPrice) && Number(currentPrice) > 0 ? Number(currentPrice) : 1.0
       const nowSec = Math.floor(Date.now() / 1000)
       const candles = []
       const volumeData = []
@@ -161,7 +171,7 @@ export const TradingViewLightweightChart = ({
                 lineWidth: 2,
                 lineStyle: LineStyle.Dashed,
                 axisLabelVisible: true,
-                title: `ENTRY $${entryVal.toLocaleString('en-US', { minimumFractionDigits: 2 })}`
+                title: `ENTRY $${formatChartPriceLabel(entryVal)}`
               })
             }
           } else if (typeStr === 'tp' || typeStr === 'take_profit') {
@@ -173,7 +183,7 @@ export const TradingViewLightweightChart = ({
                 lineWidth: 2,
                 lineStyle: LineStyle.Dashed,
                 axisLabelVisible: true,
-                title: `TP $${tpVal.toLocaleString('en-US', { minimumFractionDigits: 2 })}`
+                title: `TP $${formatChartPriceLabel(tpVal)}`
               })
             }
           } else if (typeStr === 'sl' || typeStr === 'stop_loss') {
@@ -185,7 +195,7 @@ export const TradingViewLightweightChart = ({
                 lineWidth: 2,
                 lineStyle: LineStyle.Dashed,
                 axisLabelVisible: true,
-                title: `SL $${slVal.toLocaleString('en-US', { minimumFractionDigits: 2 })}`
+                title: `SL $${formatChartPriceLabel(slVal)}`
               })
             }
           } else if (typeStr === 'ema') {

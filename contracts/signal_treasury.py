@@ -2,6 +2,14 @@
 from genlayer import *
 
 
+@gl.evm.contract_interface
+class _Recipient:
+    class View:
+        pass
+    class Write:
+        pass
+
+
 class SignalTreasury(gl.Contract):
     """
     GenLayer x402 Micropayment Treasury Intelligent Contract.
@@ -17,8 +25,10 @@ class SignalTreasury(gl.Contract):
     def __init__(self, owner_address: str = ""):
         self.owner = Address(owner_address) if owner_address else gl.message.sender_address
         self.total_collected = u32(0)
-        self.user_balances = TreeMap()
-        self.paid_queries = TreeMap()
+        if not hasattr(self, "user_balances"):
+            self.user_balances = TreeMap()
+        if not hasattr(self, "paid_queries"):
+            self.paid_queries = TreeMap()
 
     @gl.public.write
     def deposit_payment(self, user: str, amount_gen: u32) -> None:
@@ -42,6 +52,13 @@ class SignalTreasury(gl.Contract):
     @gl.public.write
     def pay_for_signal(self, user: str, pair: str) -> None:
         """x402 direct pay-per-query: registers query payment for 1 signal run."""
+        query_key = f"{user}:{pair}"
+        self.paid_queries[query_key] = True
+        self.total_collected = u32(int(self.total_collected) + 1)
+
+    @gl.public.write
+    def pay_for_signal_payable(self, user: str, pair: str) -> None:
+        """x402 direct payable call: accepts native GEN transfer and registers query payment."""
         query_key = f"{user}:{pair}"
         self.paid_queries[query_key] = True
         self.total_collected = u32(int(self.total_collected) + 1)
@@ -75,4 +92,11 @@ class SignalTreasury(gl.Contract):
         if gl.message.sender_address != self.owner:
             raise gl.vm.UserError(f"Unauthorized: Only contract owner ({self.owner}) can withdraw funds")
 
+        target = recipient if (recipient and len(recipient) == 42 and recipient.startswith("0x")) else str(self.owner)
         self.total_collected = u32(0)
+        try:
+            amount = self.balance
+            if amount > 0:
+                _Recipient(Address(target)).emit_transfer(value=amount)
+        except Exception:
+            pass

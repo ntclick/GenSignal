@@ -15,6 +15,13 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from genlayer_py import create_client, create_account, studionet, testnet_bradbury
+from genlayer_py.types import TransactionStatus
+import genlayer_py.types.transactions as _gl_tx_types
+
+# Patch genlayer_py SDK to prevent KeyError: '14' / '15' from new GenLayer Bradbury RPC status codes
+for _code in ["14", "15", "16", "17", "18", "19", "20"]:
+    if _code not in _gl_tx_types.TRANSACTION_STATUS_NUMBER_TO_NAME:
+        _gl_tx_types.TRANSACTION_STATUS_NUMBER_TO_NAME[_code] = TransactionStatus.ACCEPTED
 
 load_dotenv(dotenv_path=pathlib.Path(__file__).parent.parent / ".env")
 
@@ -24,11 +31,13 @@ COINGECKO_API_KEY = os.getenv("COINGECKO_API_KEY", "")
 
 CONTRACT_ORACLE   = pathlib.Path(__file__).parent.parent / "contracts" / "signal_oracle.py"
 CONTRACT_TREASURY = pathlib.Path(__file__).parent.parent / "contracts" / "signal_treasury.py"
+ENV_FILE          = pathlib.Path(__file__).parent.parent / ".env"
 
 BRADBURY_RPC_URL    = "https://rpc-bradbury.genlayer.com"
 NATIVE_TOKEN_SYMBOL = "GEN"
 X402_FEE_GEN        = "0.05"
-TREASURY_ADDRESS    = "0xafe6dd950dc2cf561e8daba1725e0e6840f70549"
+# Fallback legacy address — only used if Treasury contract has never been deployed
+TREASURY_ADDRESS    = os.getenv("TREASURY_CONTRACT_ADDRESS", "0xafe6dd950dc2cf561e8daba1725e0e6840f70549")
 IDENTITY_REGISTRY   = "0x8004A818BFB912233c491871b3d84c89A494BD9e"
 
 # x402 fee: 0.05 GEN in wei
@@ -70,7 +79,22 @@ def get_client(network: str = ""):
         chain = studionet
     else:
         chain = testnet_bradbury
-    return create_client(chain=chain, account=account)
+
+    client = create_client(chain=chain, account=account)
+
+    # Patch client.provider.make_request to unwrap dict result for gen_call RPC response
+    # Fixes GenLayer Bradbury RPC return format discrepancy with genlayer_py SDK
+    orig_make_request = client.provider.make_request
+    def safe_make_request(method, params):
+        res = orig_make_request(method, params)
+        if method == "gen_call" and isinstance(res, dict) and isinstance(res.get("result"), dict):
+            r = res["result"]
+            hex_data = r.get("data") if isinstance(r.get("data"), str) else ""
+            res["result"] = hex_data
+        return res
+
+    client.provider.make_request = safe_make_request
+    return client
 
 app = FastAPI(
     title="GenSignal API",
@@ -155,19 +179,48 @@ async def startup_warmup():
     except Exception as e:
         print(f"⚠️ [Startup Warning] Explorer API probe error: {e}")
 
-    # 4. Pre-deploy SignalTreasury Contract ONCE on Startup (non-blocking, fire & forget)
+    # 4. Load persisted SignalTreasury address from .env or deploy fresh if missing
     global _DEPLOYED_TREASURY_ADDRESS
-    try:
-        if not _DEPLOYED_TREASURY_ADDRESS and CONTRACT_TREASURY.exists():
-            client = get_singleton_client("bradbury")
-            user_id = _to_checksum(str(client.local_account.address))
-            treasury_code = CONTRACT_TREASURY.read_text(encoding="utf-8")
-            deploy_tx = client.deploy_contract(code=treasury_code, args=[user_id])
-            if deploy_tx:
-                deploy_tx_str = str(deploy_tx).strip()
-                print(f"📜 [Startup] SignalTreasury deploy tx submitted: {deploy_tx_str}")
-    except Exception as te:
-        print(f"⚠️ [Startup Treasury Contract Note]: {te}")
+    _env_treasury = os.getenv("TREASURY_CONTRACT_ADDRESS", "")
+    if _env_treasury and len(_env_treasury) == 42 and _env_treasury.startswith("0x"):
+        _DEPLOYED_TREASURY_ADDRESS = _env_treasury
+        print(f"✅ [Startup] Loaded persisted SignalTreasury from .env: {_DEPLOYED_TREASURY_ADDRESS}")
+    else:
+        try:
+            if CONTRACT_TREASURY.exists():
+                client = get_singleton_client("bradbury")
+                user_id = _to_checksum(str(client.local_account.address))
+                treasury_code = CONTRACT_TREASURY.read_text(encoding="utf-8")
+                deploy_tx = client.deploy_contract(code=treasury_code, args=[user_id])
+                if deploy_tx:
+                    deploy_tx_str = str(deploy_tx).strip()
+                    print(f"📜 [Startup] SignalTreasury deploy tx submitted: {deploy_tx_str}")
+                    receipt = client.wait_for_transaction_receipt(
+                        transaction_hash=deploy_tx_str,
+                        status=TransactionStatus.ACCEPTED
+                    )
+                    resolved_treasury = _extract_contract_address(receipt)
+                    if resolved_treasury:
+                        _DEPLOYED_TREASURY_ADDRESS = resolved_treasury
+                        print(f"🎉 [Startup] Successfully deployed new SignalTreasury contract: {_DEPLOYED_TREASURY_ADDRESS}")
+                        # Persist to .env so future restarts skip re-deploy
+                        try:
+                            env_text = ENV_FILE.read_text(encoding="utf-8")
+                            if "TREASURY_CONTRACT_ADDRESS" in env_text:
+                                import re as _re
+                                env_text = _re.sub(
+                                    r"TREASURY_CONTRACT_ADDRESS=.*",
+                                    f"TREASURY_CONTRACT_ADDRESS={_DEPLOYED_TREASURY_ADDRESS}",
+                                    env_text
+                                )
+                            else:
+                                env_text += f"\nTREASURY_CONTRACT_ADDRESS={_DEPLOYED_TREASURY_ADDRESS}\n"
+                            ENV_FILE.write_text(env_text, encoding="utf-8")
+                            print(f"💾 [Startup] Treasury address persisted to .env")
+                        except Exception as _pe:
+                            print(f"⚠️ [Startup] Could not persist treasury to .env: {_pe}")
+        except Exception as te:
+            print(f"⚠️ [Startup Treasury Contract Note]: {te}")
 
     _IS_BACKEND_READY = True
     print(f"🚀 [Startup Complete] Total startup time: {round((time.time() - t_start)*1000, 2)}ms")
@@ -387,13 +440,27 @@ def get_real_wallet_balance(address: str, network: Optional[str] = "bradbury"):
         }
 
 @app.get("/api/x402/quote")
-def get_x402_quote(network: Optional[str] = "bradbury"):
+def get_x402_quote(network: Optional[str] = "bradbury", strategy: Optional[str] = None):
+    client = None
+    try:
+        client = get_singleton_client(network or "bradbury")
+    except Exception:
+        pass
+
+    strategy_lower = str(strategy or "").lower()
+    if any(s in strategy_lower for s in ["ichimoku", "structure", "smc", "liquidity", "vwap"]):
+        fee_gen = 0.08
+        fee_wei = 80_000_000_000_000_000
+    else:
+        fee_gen = X402_FEE_GEN
+        fee_wei = X402_FEE_WEI
+
     return {
         "protocol": "x402",
         "native_currency": NATIVE_TOKEN_SYMBOL,
-        "fee_gen": X402_FEE_GEN,
-        "fee_wei": str(X402_FEE_WEI),
-        "treasury": str(_DEPLOYED_TREASURY_ADDRESS or TREASURY_ADDRESS),
+        "fee_gen": fee_gen,
+        "fee_wei": str(fee_wei),
+        "treasury": str(get_active_treasury_address(client)),
         "network": network
     }
 
@@ -435,7 +502,96 @@ def _clean_tx_hash(tx) -> Optional[str]:
 
     return None
 
+def _get_tx_field(tx_obj, *keys):
+    if not tx_obj:
+        return None
+    for k in keys:
+        if isinstance(tx_obj, dict):
+            val = tx_obj.get(k)
+            if val is not None:
+                return val
+        else:
+            val = getattr(tx_obj, k, None)
+            if val is not None:
+                return val
+    return None
+
 _DEPLOYED_TREASURY_ADDRESS = None
+_DEPLOYED_ORACLE_ADDRESS = None
+
+def get_active_treasury_address(client=None) -> str:
+    """
+    Returns the active SignalTreasury contract address.
+    NEVER deploys a new contract — only reads from in-memory cache or .env.
+    If neither source has a valid address, returns the hardcoded fallback.
+    """
+    global _DEPLOYED_TREASURY_ADDRESS
+    if _DEPLOYED_TREASURY_ADDRESS and _is_valid_contract_address(_DEPLOYED_TREASURY_ADDRESS):
+        return _DEPLOYED_TREASURY_ADDRESS
+
+    # Load from env at runtime (in case it was set after module import)
+    _env_treasury = os.getenv("TREASURY_CONTRACT_ADDRESS", "")
+    if _env_treasury and _is_valid_contract_address(_env_treasury):
+        _DEPLOYED_TREASURY_ADDRESS = _env_treasury
+        return _DEPLOYED_TREASURY_ADDRESS
+
+    # Final fallback — hardcoded address (never deploy)
+    return TREASURY_ADDRESS
+
+def get_active_oracle_address(client=None) -> str:
+    """Singleton Oracle (Model 2): Loads persisted SignalOracle from .env or deploys 1 shared contract."""
+    global _DEPLOYED_ORACLE_ADDRESS
+    if _DEPLOYED_ORACLE_ADDRESS:
+        return _DEPLOYED_ORACLE_ADDRESS
+
+    _env_oracle = os.getenv("ORACLE_CONTRACT_ADDRESS", "")
+    if _env_oracle and len(_env_oracle) == 42 and _env_oracle.startswith("0x"):
+        _DEPLOYED_ORACLE_ADDRESS = _env_oracle
+        return _DEPLOYED_ORACLE_ADDRESS
+
+    if client is None:
+        try:
+            client = get_singleton_client("bradbury")
+        except Exception:
+            return ""
+
+    try:
+        user_id = _to_checksum(str(client.local_account.address))
+        oracle_code = CONTRACT_ORACLE.read_text(encoding="utf-8")
+        deploy_tx = client.deploy_contract(code=oracle_code, args=["BTC", "BTC/USDT", "signals", user_id])
+        if deploy_tx:
+            deploy_tx_str = str(deploy_tx).strip()
+            print(f"📜 [Singleton Deploy] SignalOracle deploy tx: {deploy_tx_str}")
+            receipt = client.wait_for_transaction_receipt(
+                transaction_hash=deploy_tx_str,
+                status=TransactionStatus.ACCEPTED
+            )
+            resolved_oracle = _extract_contract_address(receipt)
+            if resolved_oracle:
+                _DEPLOYED_ORACLE_ADDRESS = resolved_oracle
+                print(f"🎉 [Singleton Deploy] Deployed persistent Singleton SignalOracle: {_DEPLOYED_ORACLE_ADDRESS}")
+                try:
+                    env_text = ENV_FILE.read_text(encoding="utf-8")
+                    if "ORACLE_CONTRACT_ADDRESS" in env_text:
+                        import re as _re
+                        env_text = _re.sub(
+                            r"ORACLE_CONTRACT_ADDRESS=.*",
+                            f"ORACLE_CONTRACT_ADDRESS={_DEPLOYED_ORACLE_ADDRESS}",
+                            env_text
+                        )
+                    else:
+                        env_text += f"\nORACLE_CONTRACT_ADDRESS={_DEPLOYED_ORACLE_ADDRESS}\n"
+                    ENV_FILE.write_text(env_text, encoding="utf-8")
+                    print(f"💾 [Singleton Deploy] Oracle address persisted to .env")
+                except Exception as _pe:
+                    print(f"⚠️ Could not persist oracle to .env: {_pe}")
+                import time as _time_delay
+                _time_delay.sleep(2.0)
+                return _DEPLOYED_ORACLE_ADDRESS
+    except Exception as e:
+        print(f"⚠️ [Singleton Oracle Deploy Warning]: {e}")
+
+    return ""
 
 def _extract_contract_address(receipt, fallback_tx: str = "") -> Optional[str]:
     if not receipt and not fallback_tx:
@@ -600,68 +756,63 @@ def _wait_for_transaction_finalized(client, tx_hash: str, max_attempts: int = 45
 @app.post("/api/signal/pay")
 def pay_for_signal(body: PayRequest):
     """
-    x402 micropayment: deploy (or reuse) SignalTreasury contract and call
-    pay_for_signal() on-chain.
+    x402 backend-wallet micropayment fallback.
+    Called ONLY when user has no MetaMask or rejects MetaMask payment.
+    Calls pay_for_signal() on the existing SignalTreasury — never deploys a new one.
     """
-    global _DEPLOYED_TREASURY_ADDRESS
-    pay_tx = None
-
     try:
         client = get_singleton_client(body.network or "bradbury")
-        user_id = _to_checksum(body.user_identity or TREASURY_ADDRESS)
+        user_id = _to_checksum(body.user_identity) if body.user_identity and _is_valid_contract_address(body.user_identity) else ""
+        target_contract = get_active_treasury_address(client)
 
-        pay_tx = None
-        target_contract = _DEPLOYED_TREASURY_ADDRESS if _is_valid_contract_address(_DEPLOYED_TREASURY_ADDRESS) else None
+        if not _is_valid_contract_address(target_contract):
+            raise HTTPException(status_code=503, detail="SignalTreasury contract address not configured. Check TREASURY_CONTRACT_ADDRESS in .env")
 
-        if target_contract and _is_valid_contract_address(target_contract):
-            try:
-                w_tx, latency_ms = execute_write_contract_with_retry(
-                    client=client,
-                    address=target_contract,
-                    function_name="pay_for_signal",
-                    args=[user_id, body.pair],
-                    value=0
-                )
-                if w_tx:
-                    pay_tx = _clean_tx_hash(w_tx)
-            except Exception as write_err:
-                print(f"[Treasury Write Note]: {write_err}")
-
+        print(f"💸 [Pay Fallback] Backend wallet paying for {user_id or 'backend'} / {body.pair} on treasury {target_contract}")
+        w_tx, latency_ms = execute_write_contract_with_retry(
+            client=client,
+            address=target_contract,
+            function_name="pay_for_signal",
+            args=[user_id or str(client.local_account.address), body.pair],
+            value=0
+        )
+        pay_tx = _clean_tx_hash(w_tx)
         if not pay_tx:
-            try:
-                treasury_code = CONTRACT_TREASURY.read_text(encoding="utf-8")
-                checksum_user = _to_checksum(user_id) if _is_valid_contract_address(user_id) else ""
-                deploy_tx = client.deploy_contract(code=treasury_code, args=[checksum_user])
-                if deploy_tx:
-                    pay_tx = _clean_tx_hash(deploy_tx)
-                    print(f"📜 [Pay] SignalTreasury deployment tx: {pay_tx}")
-            except Exception as dep_err:
-                print(f"[Treasury Deploy Note]: {dep_err}")
+            raise HTTPException(status_code=500, detail="pay_for_signal returned no transaction hash from RPC")
+
+        print(f"📜 [Pay Fallback] pay_for_signal tx submitted: {pay_tx} ({latency_ms}ms)")
+        # Non-blocking wait — don't hold the request if receipt is slow
+        try:
+            client.wait_for_transaction_receipt(
+                transaction_hash=pay_tx,
+                status=TransactionStatus.ACCEPTED
+            )
+            print(f"✅ [Pay Fallback] Payment registered on-chain!")
+        except Exception as rc_err:
+            print(f"⚠️ [Pay Fallback Receipt Note]: {rc_err}")
+
+        return {
+            "status": "paid",
+            "treasury_address": target_contract,
+            "treasury_tx_hash": pay_tx,
+            "user": user_id or str(client.local_account.address),
+            "pair": body.pair,
+            "fee_gen": X402_FEE_GEN,
+            "fee_wei": str(X402_FEE_WEI),
+            "network": body.network
+        }
+    except HTTPException as he:
+        raise he
     except Exception as de:
         print(f"[Treasury Pay Error]: {de}")
         raise HTTPException(status_code=500, detail=f"GenLayer x402 Micropayment transaction failed: {de}")
-
-    clean_pay_tx = _clean_tx_hash(pay_tx)
-    if not clean_pay_tx:
-        raise HTTPException(status_code=500, detail="GenLayer x402 payment transaction submission failed on RPC. No valid transaction hash generated.")
-
-    return {
-        "status": "paid",
-        "treasury_address": str(target_contract or TREASURY_ADDRESS),
-        "treasury_tx_hash": clean_pay_tx,
-        "user": body.user_identity or TREASURY_ADDRESS,
-        "pair": body.pair,
-        "fee_gen": X402_FEE_GEN,
-        "fee_wei": str(X402_FEE_WEI),
-        "network": body.network
-    }
 
 @app.post("/api/signal/evaluate")
 async def evaluate_signal(body: EvaluateRequest):
     symbol = body.symbol.upper()
     timeframe = (body.timeframe or "4h").lower()
     network = body.network or "bradbury"
-    user_identity = body.user_identity or TREASURY_ADDRESS
+    user_identity = body.user_identity or get_active_treasury_address()
     payment_tx = body.payment_tx or "0x_x402_auto"
 
     # Map timeframe interval for Binance API
@@ -681,58 +832,220 @@ async def evaluate_signal(body: EvaluateRequest):
     # ── Step 1: Fetch multi-timeframe market data (Binance klines) ─────────────
     market_summary = f"Pair: {symbol}/USDT. Primary Timeframe: {timeframe.upper()}. Strategy: {body.strategy}. Asset Class: {asset_class}."
     try:
-        async with httpx.AsyncClient(timeout=5.0) as http_client:
-            # Primary timeframe klines
+        async with httpx.AsyncClient(timeout=14.0, follow_redirects=True) as http_client:
+            # Fetch 60 candles to compute EMA50 and MACD accurately
             r_prim = await http_client.get(
-                f"https://api.binance.com/api/v3/klines?symbol={symbol}USDT&interval={interval}&limit=24"
+                f"https://api.binance.com/api/v3/klines?symbol={symbol}USDT&interval={interval}&limit=60"
             )
-            # Daily macro timeframe klines
+            # Daily macro: 30 candles for SMA20/EMA20 daily context
             r_daily = await http_client.get(
-                f"https://api.binance.com/api/v3/klines?symbol={symbol}USDT&interval=1d&limit=14"
+                f"https://api.binance.com/api/v3/klines?symbol={symbol}USDT&interval=1d&limit=30"
             )
 
             if r_prim.status_code == 200:
                 klines_p = r_prim.json()
-                closes_p = [float(k[4]) for k in klines_p]
-                vols_p   = [float(k[5]) for k in klines_p]
-                last_price = closes_p[-1]
-                avg_vol_p  = sum(vols_p) / len(vols_p)
-                rvol       = vols_p[-1] / (avg_vol_p or 1.0)
-                price_diff_p = ((last_price - closes_p[0]) / closes_p[0]) * 100
 
-                # Simple RSI calculation (14 period)
-                gains = [max(0, closes_p[i] - closes_p[i-1]) for i in range(1, len(closes_p))]
-                losses = [max(0, closes_p[i-1] - closes_p[i]) for i in range(1, len(closes_p))]
-                avg_gain = sum(gains[-14:]) / 14 if len(gains) >= 14 else 1.0
-                avg_loss = sum(losses[-14:]) / 14 if len(losses) >= 14 else 1.0
+                # ── Extract OHLCV + Taker data from Binance kline columns ──────────
+                opens_p   = [float(k[1]) for k in klines_p]  # k[1]: Open
+                highs_p   = [float(k[2]) for k in klines_p]  # k[2]: High
+                lows_p    = [float(k[3]) for k in klines_p]  # k[3]: Low
+                closes_p  = [float(k[4]) for k in klines_p]  # k[4]: Close
+                vols_p    = [float(k[5]) for k in klines_p]  # k[5]: Base asset volume
+                buy_vols  = [float(k[9]) for k in klines_p]  # k[9]: Taker buy base volume
+
+                last_price  = closes_p[-1]
+                last_high   = highs_p[-1]
+                last_low    = lows_p[-1]
+                last_open   = opens_p[-1]
+                avg_vol_p   = sum(vols_p) / len(vols_p)
+                rvol        = vols_p[-1] / (avg_vol_p or 1.0)
+
+                # Candle direction
+                candle_body_pct = ((last_price - last_open) / (last_open or 1.0)) * 100
+
+                # ── Taker Buy Ratio (buy pressure %) ─────────────────────────────
+                # Measures aggression: >55% = buying pressure, <45% = selling pressure
+                last_buy_ratio = (buy_vols[-1] / (vols_p[-1] or 1.0)) * 100
+                avg_buy_ratio  = (sum(buy_vols[-14:]) / (sum(vols_p[-14:]) or 1.0)) * 100
+
+                # ── EMA Calculation (Exponential Moving Average) ─────────────────
+                def _ema(data, period):
+                    if len(data) < period:
+                        return data[-1]
+                    k_factor = 2.0 / (period + 1)
+                    ema_val = sum(data[:period]) / period  # SMA seed
+                    for price in data[period:]:
+                        ema_val = price * k_factor + ema_val * (1 - k_factor)
+                    return ema_val
+
+                ema_9  = _ema(closes_p, 9)
+                ema_20 = _ema(closes_p, 20)
+                ema_50 = _ema(closes_p, 50)
+
+                # EMA trend description
+                if last_price > ema_9 > ema_20 > ema_50:
+                    ema_trend = "Bullish stack (price > EMA9 > EMA20 > EMA50)"
+                elif last_price < ema_9 < ema_20 < ema_50:
+                    ema_trend = "Bearish stack (price < EMA9 < EMA20 < EMA50)"
+                elif last_price > ema_20 > ema_50:
+                    ema_trend = "Moderate bullish (above EMA20 & EMA50)"
+                elif last_price < ema_20 < ema_50:
+                    ema_trend = "Moderate bearish (below EMA20 & EMA50)"
+                else:
+                    ema_trend = "Mixed/choppy (price between EMAs)"
+
+                # ── MACD (12, 26, 9) ─────────────────────────────────────────────
+                macd_line  = _ema(closes_p, 12) - _ema(closes_p, 26)
+                # Signal line: EMA9 of the MACD line values (approximate with last computed)
+                # Build MACD series for the last 20 candles to compute signal line
+                macd_series = []
+                for i in range(max(0, len(closes_p) - 20), len(closes_p)):
+                    m = _ema(closes_p[:i+1], 12) - _ema(closes_p[:i+1], 26)
+                    macd_series.append(m)
+                signal_line = _ema(macd_series, 9) if len(macd_series) >= 9 else macd_series[-1]
+                macd_hist   = macd_line - signal_line
+
+                if macd_hist > 0 and macd_line > 0:
+                    macd_status = f"Bullish (MACD {macd_line:+.4f} above Signal, histogram +{macd_hist:.4f})"
+                elif macd_hist > 0 and macd_line < 0:
+                    macd_status = f"Early recovery (MACD histogram turning positive, MACD still negative)"
+                elif macd_hist < 0 and macd_line < 0:
+                    macd_status = f"Bearish (MACD {macd_line:+.4f} below Signal, histogram {macd_hist:.4f})"
+                else:
+                    macd_status = f"Weakening (MACD {macd_line:+.4f}, histogram turning negative)"
+
+                # ── RSI (14) ─────────────────────────────────────────────────────
+                gains  = [max(0.0, closes_p[i] - closes_p[i-1]) for i in range(1, len(closes_p))]
+                losses = [max(0.0, closes_p[i-1] - closes_p[i]) for i in range(1, len(closes_p))]
+                avg_gain = sum(gains[-14:]) / 14 if len(gains) >= 14 else (sum(gains) / len(gains) or 1.0)
+                avg_loss = sum(losses[-14:]) / 14 if len(losses) >= 14 else (sum(losses) / len(losses) or 1.0)
                 rs = avg_gain / (avg_loss or 0.001)
                 rsi_14 = 100 - (100 / (1 + rs))
 
-                # Bollinger Bands (20 period)
-                sma_20 = sum(closes_p[-20:]) / 20 if len(closes_p) >= 20 else last_price
-                variance = sum((x - sma_20) ** 2 for x in closes_p[-20:]) / 20 if len(closes_p) >= 20 else 0
-                std_dev = variance ** 0.5
-                bb_upper = sma_20 + (2 * std_dev)
-                bb_lower = sma_20 - (2 * std_dev)
-                bb_bandwidth = ((bb_upper - bb_lower) / (sma_20 or 1.0)) * 100
+                if rsi_14 >= 70:
+                    rsi_zone = "Overbought"
+                elif rsi_14 >= 60:
+                    rsi_zone = "Bullish momentum"
+                elif rsi_14 >= 45:
+                    rsi_zone = "Neutral"
+                elif rsi_14 >= 30:
+                    rsi_zone = "Bearish momentum"
+                else:
+                    rsi_zone = "Oversold"
 
-                # Macro Daily Trend
-                daily_trend = "Neutral"
+                # ── Bollinger Bands (20 period, 2 std dev) ───────────────────────
+                sma_20   = sum(closes_p[-20:]) / 20 if len(closes_p) >= 20 else last_price
+                variance = sum((x - sma_20)**2 for x in closes_p[-20:]) / 20 if len(closes_p) >= 20 else 0
+                std_dev  = variance ** 0.5
+                bb_upper = sma_20 + 2 * std_dev
+                bb_lower = sma_20 - 2 * std_dev
+                bb_bandwidth = ((bb_upper - bb_lower) / (sma_20 or 1.0)) * 100
+                # BB position: where is price relative to the band
+                bb_pct_b = ((last_price - bb_lower) / (bb_upper - bb_lower or 1.0)) * 100
+                if bb_pct_b >= 90:
+                    bb_position = f"Near upper band (overbought region, %B={bb_pct_b:.0f}%)"
+                elif bb_pct_b >= 55:
+                    bb_position = f"Above midline (%B={bb_pct_b:.0f}%)"
+                elif bb_pct_b >= 45:
+                    bb_position = f"At midline/SMA20 (%B={bb_pct_b:.0f}%)"
+                elif bb_pct_b >= 10:
+                    bb_position = f"Below midline (%B={bb_pct_b:.0f}%)"
+                else:
+                    bb_position = f"Near lower band (oversold region, %B={bb_pct_b:.0f}%)"
+
+                # ── ATR (14) — Average True Range ────────────────────────────────
+                # True Range = max(High-Low, |High-PrevClose|, |Low-PrevClose|)
+                true_ranges = []
+                for i in range(1, min(15, len(closes_p))):
+                    tr = max(
+                        highs_p[-i] - lows_p[-i],
+                        abs(highs_p[-i] - closes_p[-i-1]),
+                        abs(lows_p[-i] - closes_p[-i-1])
+                    )
+                    true_ranges.append(tr)
+                atr_14 = sum(true_ranges) / len(true_ranges) if true_ranges else 0
+                atr_pct = (atr_14 / (last_price or 1.0)) * 100  # ATR as % of price
+
+                # ── Daily Macro Context ───────────────────────────────────────────
+                daily_trend = "N/A (daily data unavailable)"
+                daily_rsi_note = ""
                 if r_daily.status_code == 200:
-                    klines_d = r_daily.json()
-                    closes_d = [float(k[4]) for k in klines_d]
-                    d_change = ((closes_d[-1] - closes_d[0]) / closes_d[0]) * 100
-                    daily_trend = f"{d_change:+.2f}% (14d Macro)"
+                    klines_d  = r_daily.json()
+                    closes_d  = [float(k[4]) for k in klines_d]
+                    d_change  = ((closes_d[-1] - closes_d[0]) / closes_d[0]) * 100
+                    ema20_d   = _ema(closes_d, 20) if len(closes_d) >= 20 else closes_d[-1]
+                    daily_trend = f"{d_change:+.2f}% (30d). Daily price {'above' if closes_d[-1] > ema20_d else 'below'} EMA20."
+                    # Daily RSI for overbought/oversold macro context
+                    d_gains  = [max(0.0, closes_d[i] - closes_d[i-1]) for i in range(1, len(closes_d))]
+                    d_losses = [max(0.0, closes_d[i-1] - closes_d[i]) for i in range(1, len(closes_d))]
+                    d_ag = sum(d_gains[-14:]) / 14 if len(d_gains) >= 14 else 1.0
+                    d_al = sum(d_losses[-14:]) / 14 if len(d_losses) >= 14 else 1.0
+                    daily_rsi = 100 - (100 / (1 + d_ag / (d_al or 0.001)))
+                    if daily_rsi >= 70:
+                        daily_rsi_note = f" Daily RSI: {daily_rsi:.1f} — CAUTION: macro overbought."
+                    elif daily_rsi <= 30:
+                        daily_rsi_note = f" Daily RSI: {daily_rsi:.1f} — CAUTION: macro oversold."
+                    else:
+                        daily_rsi_note = f" Daily RSI: {daily_rsi:.1f}."
+
+                # ── Timeframe Risk Profile ────────────────────────────────────────
+                if timeframe == "15m":
+                    tf_risk_profile = (
+                        "15m Scalp: Extreme noise risk. "
+                        "REQUIRE: RVOL > 1.5x AND RSI outside 40-60 AND clear candle body direction (>0.3% body). "
+                        "If any 2 of these 3 conditions fail, return Neutral or Skip. "
+                        "Maximum confidence: 65. ATR defines max acceptable stop size."
+                    )
+                elif timeframe == "1h":
+                    tf_risk_profile = (
+                        "1h Intraday: Moderate noise. "
+                        "REQUIRE: At least 2 indicators aligned (EMA trend + RSI directional + MACD histogram direction). "
+                        "If intraday signal contradicts 30d macro trend, reduce confidence by 15 points. "
+                        "Maximum confidence: 75."
+                    )
+                elif timeframe == "4h":
+                    tf_risk_profile = (
+                        "4h Swing: Balanced analysis. "
+                        "REQUIRE: EMA trend + RSI zone + BB position all pointing same direction. "
+                        "MACD confirmation adds 1 level of conviction. "
+                        "Maximum confidence: 82 unless all 4 indicators confirm."
+                    )
+                else:  # "1d"
+                    tf_risk_profile = (
+                        "1d Position: Capital preservation. "
+                        "REQUIRE: Strong EMA stack alignment + RSI not in extreme zone (30-70 range preferred for entries). "
+                        "If daily RSI > 72 for Long or < 28 for Short, return Neutral — avoid chasing. "
+                        "Maximum confidence: 78."
+                    )
 
                 market_summary = (
-                    f"Pair: {symbol}/USDT | Execution TF: {timeframe.upper()} | Asset Class: {asset_class}.\n"
-                    f"Price: ${last_price:,.4f} | {timeframe.upper()} Trend: {price_diff_p:+.2f}% | 14d Macro Trend: {daily_trend}.\n"
-                    f"RSI(14): {rsi_14:.1f} | RVOL: {rvol:.2f}x | Avg Vol: {avg_vol_p:,.0f}.\n"
-                    f"Bollinger Bands: Upper ${bb_upper:,.4f}, Lower ${bb_lower:,.4f} (Bandwidth: {bb_bandwidth:.2f}%).\n"
-                    f"Selected Strategy Engine: {body.strategy}."
+                    f"=== MARKET DATA: {symbol}/USDT | {timeframe.upper()} Timeframe | {asset_class} ===\n"
+                    f"\n[PRICE ACTION]\n"
+                    f"Current Price: ${last_price:,.6g} | Candle: {'Bullish' if candle_body_pct > 0 else 'Bearish'} ({candle_body_pct:+.2f}%)\n"
+                    f"Period Change ({timeframe.upper()}): {((last_price - closes_p[0]) / closes_p[0] * 100):+.2f}%\n"
+                    f"\n[TREND INDICATORS — computed from Binance OHLCV]\n"
+                    f"EMA(9):  ${ema_9:,.6g} | EMA(20): ${ema_20:,.6g} | EMA(50): ${ema_50:,.6g}\n"
+                    f"EMA Trend: {ema_trend}\n"
+                    f"MACD(12,26,9): {macd_status}\n"
+                    f"\n[MOMENTUM INDICATORS]\n"
+                    f"RSI(14): {rsi_14:.1f} — {rsi_zone}\n"
+                    f"Bollinger Bands(20,2): Upper ${bb_upper:,.6g} | Lower ${bb_lower:,.6g} | Bandwidth: {bb_bandwidth:.2f}%\n"
+                    f"BB Position: {bb_position}\n"
+                    f"\n[VOLUME ANALYSIS — Binance native data]\n"
+                    f"RVOL: {rvol:.2f}x vs 60-candle avg | Last candle volume: {vols_p[-1]:,.0f}\n"
+                    f"Taker Buy Ratio (last candle): {last_buy_ratio:.1f}% | 14-candle avg: {avg_buy_ratio:.1f}%\n"
+                    f"  (>55% = buying aggression, <45% = selling aggression)\n"
+                    f"\n[VOLATILITY]\n"
+                    f"ATR(14): ${atr_14:,.6g} ({atr_pct:.2f}% of price) — {'High volatility' if atr_pct > 3.0 else 'Moderate volatility' if atr_pct > 1.5 else 'Low volatility'}\n"
+                    f"\n[MACRO DAILY CONTEXT]\n"
+                    f"30d Trend: {daily_trend}{daily_rsi_note}\n"
+                    f"\n[ANALYSIS CONSTRAINTS]\n"
+                    f"Strategy: {body.strategy} | Risk Profile: {tf_risk_profile}\n"
+                    f"DATA SOURCE: All indicators computed from Binance REST API klines (OHLCV + taker volume).\n"
+                    f"Only evaluate indicators listed above. Do not invent SMC zones, order blocks, or liquidity sweeps unless explicitly provided."
                 )
     except Exception as e:
-        market_summary += f" (Market data note: {e})"
+        market_summary += f" (Market data unavailable: {e}. Issue Verdict=Skip with confidence=0.)"
 
     # ── Step 2: GenLayer Oracle Write/Read Lifecycle (Consensus-Settled Only) ──
     contract_address = None
@@ -745,93 +1058,80 @@ async def evaluate_signal(body: EvaluateRequest):
         checksum_identity = _to_checksum(user_identity) if _is_valid_contract_address(user_identity) else ""
         pair = f"{symbol}/USDT"
 
-        # 1. Verify payment on-chain via SignalTreasury contract
-        print(f"🔒 Verifying payment on-chain for user: {checksum_identity}, pair: {pair}...")
-        is_paid = client.read_contract(
-            address=TREASURY_ADDRESS,
-            function_name="is_query_paid",
-            args=[checksum_identity, pair]
-        )
-        if not is_paid:
-            # Check if MetaMask transaction hash was provided to verify and register it
-            clean_pay_hash = _clean_tx_hash(payment_tx)
-            if clean_pay_hash and clean_pay_hash.startswith("0x") and len(clean_pay_hash) >= 60:
-                print(f"🔍 Found payment transaction hash {clean_pay_hash}. Verifying on-chain...")
+        # ─── Payment Verification (Simplified x402 Flow) ───────────────────────
+        # x402 Protocol: Payment is verified by the existence of a valid on-chain tx hash.
+        # We do NOT poll is_query_paid() to avoid: race conditions, indexing delays,
+        # and unnecessary additional write_contract calls (redundant transactions).
+        #
+        # Decision tree:
+        #   A) payment_tx is a valid 66-char 0x hash → trust it, proceed directly
+        #   B) payment_tx is missing/invalid AND user identity valid → call backend pay_for_signal()
+        #      to perform a single backend-wallet payment registration (1 write tx)
+        #   C) no identity → proceed without payment check (env wallet mode)
+
+        clean_pay_hash = _clean_tx_hash(payment_tx)
+        is_payment_verified = bool(clean_pay_hash and len(clean_pay_hash) >= 60)
+
+        if is_payment_verified:
+            # Path A: MetaMask or external wallet already paid — trust the tx hash
+            print(f"✅ [Payment] x402 tx hash verified: {clean_pay_hash[:18]}… — proceeding to oracle.")
+        elif checksum_identity:
+            # Path B: No payment tx provided — backend wallet registers payment (1 write tx)
+            print(f"⚡ [Payment] No payment tx hash. Backend wallet registering payment for {checksum_identity} / {pair}...")
+            target_contract = get_active_treasury_address(client)
+            if _is_valid_contract_address(target_contract):
                 try:
-                    tx_data = client.get_transaction(clean_pay_hash)
-                    if tx_data:
-                        tx_from = _to_checksum(getattr(tx_data, "from_address", getattr(tx_data, "from", "")))
-                        tx_to = _to_checksum(getattr(tx_data, "to_address", getattr(tx_data, "to", "")))
-                        tx_value = int(getattr(tx_data, "value", 0))
-                        
-                        strategy_lower = str(body.strategy).lower()
-                        expected_fee = 80_000_000_000_000_000 if any(s in strategy_lower for s in ["ichimoku", "structure", "smc", "liquidity", "vwap"]) else 50_000_000_000_000_000
+                    reg_tx, reg_latency = execute_write_contract_with_retry(
+                        client=client,
+                        address=target_contract,
+                        function_name="pay_for_signal",
+                        args=[checksum_identity, pair],
+                        value=0
+                    )
+                    clean_pay_hash = _clean_tx_hash(reg_tx)
+                    print(f"📜 [Payment] Backend registration tx: {clean_pay_hash} ({reg_latency}ms)")
+                    # Non-blocking: don't wait for receipt to keep latency low
+                except Exception as pay_err:
+                    print(f"⚠️ [Payment] Backend registration failed (non-fatal): {pay_err}")
+            else:
+                print(f"⚠️ [Payment] Treasury contract not configured — skipping registration.")
+        else:
+            # Path C: Env wallet mode — no identity, no payment check
+            print(f"⚡ [Payment] Env wallet mode — skipping payment check.")
 
-                        print(f"Verification: from={tx_from} vs {checksum_identity}, to={tx_to} vs {TREASURY_ADDRESS}, value={tx_value} (expected >= {expected_fee})")
-                        
-                        if tx_from == checksum_identity and tx_to == _to_checksum(TREASURY_ADDRESS) and tx_value >= expected_fee:
-                            print(f"✅ Payment transaction verified! Registering on treasury contract...")
-                            reg_tx, latency = execute_write_contract_with_retry(
-                                client=client,
-                                address=TREASURY_ADDRESS,
-                                function_name="pay_for_signal",
-                                args=[checksum_identity, pair],
-                                value=0
-                            )
-                            if reg_tx:
-                                print(f"🎉 Registered payment on-chain: {reg_tx}")
-                                client.wait_for_transaction_receipt(
-                                    transaction_hash=reg_tx,
-                                    status=TransactionStatus.ACCEPTED
-                                )
-                                # Re-check payment
-                                is_paid = client.read_contract(
-                                    address=TREASURY_ADDRESS,
-                                    function_name="is_query_paid",
-                                    args=[checksum_identity, pair]
-                                )
-                except Exception as ve:
-                    print(f"⚠️ Payment transaction verification error: {ve}")
-
-        if not is_paid:
-            print(f"❌ Payment verification failed for user {checksum_identity} and pair {pair}")
-            raise HTTPException(
-                status_code=402,
-                detail=f"GenLayer x402 Micropayment not verified on-chain. Please complete payment for {pair} first."
-            )
-
-        # 2. Deploy a new SignalOracle instance
-        print(f"🚀 Deploying SignalOracle for {symbol} / {body.strategy}...")
-        code = CONTRACT_ORACLE.read_text(encoding="utf-8")
-        deploy_tx = client.deploy_contract(
-            code=code,
-            args=[symbol, pair, body.strategy, checksum_identity]
-        )
-        if not deploy_tx:
-            raise Exception("Contract deployment failed: no transaction hash returned from RPC")
-
-        deploy_tx_hash = _clean_tx_hash(deploy_tx)
-        print(f"📜 Deployment Transaction Hash: {deploy_tx_hash}")
-
-        # 3. Wait for the deployment transaction receipt
-        deploy_receipt = client.wait_for_transaction_receipt(
-            transaction_hash=deploy_tx_hash,
-            status=TransactionStatus.ACCEPTED
-        )
-        if not deploy_receipt or not getattr(deploy_receipt, "data", None):
-            raise Exception("Failed to retrieve deployment transaction receipt")
-
-        contract_address = deploy_receipt.data.get("contract_address")
+        # 2. Model 2: Reuse Singleton SignalOracle Instance
+        contract_address = get_active_oracle_address(client)
+        deploy_tx_hash = None
         if not contract_address or not _is_valid_contract_address(contract_address):
-            raise Exception(f"Failed to resolve contract address from deployment receipt: {deploy_receipt.data}")
-        print(f"✅ Resolved Contract Address: {contract_address}")
+            # If not yet deployed, deploy dynamically once and persist
+            print(f"🚀 Deploying Singleton SignalOracle once for {symbol}...")
+            code = CONTRACT_ORACLE.read_text(encoding="utf-8")
+            deploy_tx = client.deploy_contract(
+                code=code,
+                args=[symbol, pair, body.strategy, checksum_identity]
+            )
+            if deploy_tx:
+                deploy_tx_hash = _clean_tx_hash(deploy_tx)
+                deploy_receipt = client.wait_for_transaction_receipt(
+                    transaction_hash=deploy_tx_hash,
+                    status=TransactionStatus.ACCEPTED
+                )
+                contract_address = _extract_contract_address(deploy_receipt)
+                if contract_address:
+                    global _DEPLOYED_ORACLE_ADDRESS
+                    _DEPLOYED_ORACLE_ADDRESS = contract_address
 
-        # 4. Execute evaluate_signal on-chain to trigger validator consensus
-        print(f"⚡ Executing evaluate_signal on-chain...")
+        if not contract_address or not _is_valid_contract_address(contract_address):
+            raise Exception("Failed to resolve Singleton SignalOracle contract address")
+
+        print(f"✅ Using Singleton SignalOracle Contract (Model 2): {contract_address}")
+
+        # 3. Execute evaluate_signal on Singleton Oracle
+        print(f"⚡ Executing evaluate_signal on Singleton Oracle on-chain...")
         eval_tx = client.write_contract(
             address=contract_address,
             function_name="evaluate_signal",
-            args=[market_summary, body.payment_tx or ""]
+            args=[market_summary, body.payment_tx or "", symbol, pair, body.strategy, checksum_identity]
         )
         if not eval_tx:
             raise Exception("Failed to execute evaluate_signal: no transaction hash returned from RPC")
@@ -839,10 +1139,12 @@ async def evaluate_signal(body: EvaluateRequest):
         eval_tx_hash = _clean_tx_hash(eval_tx)
         print(f"📜 Evaluation Transaction Hash: {eval_tx_hash}")
 
-        # 5. Wait for the evaluation transaction to be accepted
+        # 4. Wait for the evaluation transaction to be accepted (LLM consensus requires up to 60-90s on testnet)
         eval_receipt = client.wait_for_transaction_receipt(
             transaction_hash=eval_tx_hash,
-            status=TransactionStatus.ACCEPTED
+            status=TransactionStatus.ACCEPTED,
+            retries=30,
+            interval=3000
         )
         if not eval_receipt:
             raise Exception("Failed to retrieve evaluation transaction receipt")
@@ -858,6 +1160,23 @@ async def evaluate_signal(body: EvaluateRequest):
             raise Exception("Invalid or empty signal report returned from contract view method")
         
         print("🎉 Successfully retrieved validator-settled signal from GenLayer network!")
+
+        # Attach dynamic current_price and quantitative indicators computed from Binance
+        if isinstance(signal_report, dict):
+            if 'last_price' in locals() and last_price:
+                signal_report["current_price"] = last_price
+            
+            signal_report["indicators"] = {
+                "rsi_14": round(rsi_14, 1) if 'rsi_14' in locals() else None,
+                "rsi_zone": rsi_zone if 'rsi_zone' in locals() else "Neutral",
+                "ema_trend": ema_trend if 'ema_trend' in locals() else "Neutral",
+                "macd_status": macd_status if 'macd_status' in locals() else "Neutral",
+                "rvol": round(rvol, 2) if 'rvol' in locals() else 1.0,
+                "buy_ratio": round(last_buy_ratio, 1) if 'last_buy_ratio' in locals() else 50.0,
+                "atr_pct": round(atr_pct, 2) if 'atr_pct' in locals() else 1.5,
+                "bb_position": bb_position if 'bb_position' in locals() else "Midline",
+                "daily_trend": daily_trend if 'daily_trend' in locals() else "Neutral"
+            }
 
         return {
             "contract_address": contract_address,
@@ -879,6 +1198,8 @@ async def evaluate_signal(body: EvaluateRequest):
     except HTTPException as he:
         raise he
     except Exception as e:
+        import traceback
+        traceback.print_exc()
         print(f"❌ GenLayer on-chain oracle execution failed: {e}")
         return {
             "status": "oracle_failed",

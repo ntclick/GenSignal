@@ -1,11 +1,11 @@
 /**
  * TransactionStatusService.js
  * Encapsulates all GenLayer transaction status polling, status mapping,
- * and Explorer API verification using official GenLayer Node RPC and Explorer APIs.
- *
- * Explorer API is the SINGLE SOURCE OF TRUTH.
- * Never generates synthetic or fallback transaction hashes.
+ * and Explorer API verification using the official genlayer-js SDK client.
  */
+
+import { createClient } from 'genlayer-js'
+import { testnetBradbury } from 'genlayer-js/chains'
 
 export const GENLAYER_STATUSES = {
   SUBMITTED: 'SUBMITTED',
@@ -25,12 +25,16 @@ export const GENLAYER_STATUSES = {
 
 export const EXPLORER_BASE_URL = 'https://zksync-os-testnet-genlayer.explorer.zksync.dev'
 export const GENLAYER_EXPLORER_BASE_URL = 'https://explorer-bradbury.genlayer.com'
-export const GENLAYER_RPC_URL  = 'https://rpc-bradbury.genlayer.com'
+
+// Initialize the official genlayer-js client for Bradbury Testnet
+const client = createClient({
+  chain: testnetBradbury
+})
 
 export class TransactionStatusService {
   /**
    * Verifies if a transaction hash is officially indexed by GenLayer Node RPC.
-   * Checks BOTH native GenLayer status (gen_getTransactionStatus) and standard EVM receipt (eth_getTransactionReceipt).
+   * Uses getTransaction via genlayer-js SDK.
    */
   static async verifyTransactionIndexed(txHash) {
     if (!txHash || typeof txHash !== 'string' || !txHash.startsWith('0x') || txHash.length < 60) {
@@ -38,50 +42,19 @@ export class TransactionStatusService {
     }
 
     try {
-      // 1. Try native GenLayer gen_getTransactionStatus first
-      const genRes = await fetch(GENLAYER_RPC_URL, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          jsonrpc: '2.0',
-          id: 1,
-          method: 'gen_getTransactionStatus',
-          params: [{ txId: txHash }]
-        })
-      }).catch(() => null)
-
-      if (genRes && genRes.ok) {
-        const genJson = await genRes.json().catch(() => null)
-        if (genJson && genJson.result && genJson.result.status) {
-          return { isIndexed: true, data: genJson.result }
-        }
+      const tx = await client.getTransaction({ hash: txHash })
+      if (tx) {
+        return { isIndexed: true, data: tx }
       }
-
-      // 2. Fallback to standard EVM eth_getTransactionReceipt
-      const rpcRes = await fetch(GENLAYER_RPC_URL, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          jsonrpc: '2.0',
-          id: 1,
-          method: 'eth_getTransactionReceipt',
-          params: [txHash]
-        })
-      }).catch(() => null)
-
-      if (rpcRes && rpcRes.ok) {
-        const rpcJson = await rpcRes.json().catch(() => null)
-        if (rpcJson && rpcJson.result && (rpcJson.result.status === '0x1' || rpcJson.result.blockNumber)) {
-          return { isIndexed: true, data: rpcJson.result }
-        }
-      }
-    } catch (e) {}
+    } catch (e) {
+      console.warn('verifyTransactionIndexed error:', e)
+    }
 
     return { isIndexed: false, data: null }
   }
 
   /**
-   * Polls official GenLayer RPC with exponential backoff until indexed and finalized.
+   * Polls official GenLayer RPC using genlayer-js SDK client until indexed and finalized.
    * @param {string} txHash 
    * @param {function} onStatusUpdate Callback fired on every status change or polling tick.
    * @param {object} options Config options
@@ -89,16 +62,14 @@ export class TransactionStatusService {
   static async pollTransactionStatus(txHash, onStatusUpdate, options = {}) {
     if (!txHash || typeof txHash !== 'string' || !txHash.startsWith('0x')) return null
 
-    const rpcUrl = options.rpcUrl || GENLAYER_RPC_URL
     const initialInterval = options.initialIntervalMs || 1500
     const maxInterval = options.maxIntervalMs || 5000
     const backoffFactor = 1.25
 
     let interval = initialInterval
     let isFinished = false
-    let attempt = 0
 
-    // Initial Submitted Store (Assume standard explorer first, will update dynamically below)
+    // Initial state setup
     onStatusUpdate({
       hash: txHash,
       consensusStatus: GENLAYER_STATUSES.SUBMITTED,
@@ -110,86 +81,32 @@ export class TransactionStatusService {
     })
 
     const checkStatus = async () => {
-      attempt++
       try {
-        let rawStatus = null
-        let expData = null
-        let isGenLayerNative = false
+        const tx = await client.getTransaction({ hash: txHash })
+        if (tx) {
+          const rawStatus = (tx.status || 'PENDING').toUpperCase()
+          const mappedStatus = this.mapStatus(rawStatus)
+          const isGenLayerNative = true // All transactions retrieved through this client are GenLayer native
 
-        // 1. Check native GenLayer status (gen_getTransactionStatus)
-        const genRes = await fetch(rpcUrl, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            jsonrpc: '2.0',
-            id: attempt,
-            method: 'gen_getTransactionStatus',
-            params: [{ txId: txHash }]
+          const activeExplorerBase = isGenLayerNative ? GENLAYER_EXPLORER_BASE_URL : EXPLORER_BASE_URL
+
+          onStatusUpdate({
+            hash: txHash,
+            consensusStatus: mappedStatus,
+            timestamp: new Date().toISOString(),
+            gasUsed: tx.gasUsed ? `${parseInt(tx.gasUsed).toLocaleString()} GEN` : '21,000 GEN',
+            executionResult: (mappedStatus === GENLAYER_STATUSES.FINALIZED || mappedStatus === GENLAYER_STATUSES.ACCEPTED) ? 'SUCCESS' : mappedStatus,
+            consensusInfo: 'GenVM Optimistic Democracy (Multi-Validator)',
+            explorerUrl: `${activeExplorerBase}/tx/${txHash}`
           })
-        }).catch(() => null)
 
-        if (genRes && genRes.ok) {
-          const genJson = await genRes.json().catch(() => null)
-          if (genJson && genJson.result && genJson.result.status) {
-            rawStatus = genJson.result.status
-            isGenLayerNative = true
-            expData = {
-              status: rawStatus,
-              consensus: 'GenVM Optimistic Democracy (Multi-Validator)'
-            }
+          if (mappedStatus === GENLAYER_STATUSES.FINALIZED || mappedStatus === GENLAYER_STATUSES.ACCEPTED || mappedStatus === GENLAYER_STATUSES.CANCELED) {
+            isFinished = true
           }
         }
-
-        // 2. Fallback to standard EVM receipt (eth_getTransactionReceipt)
-        if (!rawStatus) {
-          const rpcPayload = {
-            jsonrpc: '2.0',
-            id: attempt,
-            method: 'eth_getTransactionReceipt',
-            params: [txHash]
-          }
-
-          const rpcRes = await fetch(rpcUrl, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(rpcPayload)
-          }).catch(() => null)
-
-          if (rpcRes && rpcRes.ok) {
-            const rpcJson = await rpcRes.json().catch(() => null)
-            if (rpcJson && rpcJson.result) {
-              if (rpcJson.result.status === '0x1' || rpcJson.result.blockNumber) {
-                rawStatus = 'FINALIZED'
-                expData = {
-                  gas_used: `${(parseInt(rpcJson.result.gasUsed, 16) || 21000).toLocaleString()} GEN`,
-                  status: 'FINALIZED',
-                  consensus: 'GenVM Optimistic Democracy (Multi-Validator)'
-                }
-              } else if (rpcJson.result.status === '0x0') {
-                rawStatus = 'CANCELED'
-              }
-            }
-          }
-        }
-
-        // Map raw status to official enum
-        const mappedStatus = this.mapStatus(rawStatus)
-        const activeExplorerBase = isGenLayerNative ? GENLAYER_EXPLORER_BASE_URL : EXPLORER_BASE_URL
-
-        onStatusUpdate({
-          hash: txHash,
-          consensusStatus: mappedStatus,
-          timestamp: new Date().toISOString(),
-          gasUsed: (expData && expData.gas_used) ? expData.gas_used : '21,000 GEN',
-          executionResult: (mappedStatus === GENLAYER_STATUSES.FINALIZED || mappedStatus === GENLAYER_STATUSES.ACCEPTED) ? 'SUCCESS' : mappedStatus,
-          consensusInfo: 'GenVM Optimistic Democracy (Multi-Validator)',
-          explorerUrl: `${activeExplorerBase}/tx/${txHash}`
-        })
-
-        if (mappedStatus === GENLAYER_STATUSES.FINALIZED || mappedStatus === GENLAYER_STATUSES.CANCELED) {
-          isFinished = true
-        }
-      } catch (err) {}
+      } catch (err) {
+        console.warn('pollTransactionStatus error:', err)
+      }
 
       if (!isFinished) {
         interval = Math.min(interval * backoffFactor, maxInterval)
@@ -221,37 +138,23 @@ export class TransactionStatusService {
   }
 
   /**
-   * Fetches receipt details directly from Node RPC.
+   * Fetches receipt details using genlayer-js SDK client.
    */
-  static async fetchTransactionReceipt(txHash, rpcUrl = GENLAYER_RPC_URL) {
+  static async fetchTransactionReceipt(txHash) {
     try {
-      const rpcRes = await fetch(rpcUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          jsonrpc: '2.0',
-          id: 1,
-          method: 'eth_getTransactionReceipt',
-          params: [txHash]
-        })
-      }).catch(() => null)
-
-      if (rpcRes && rpcRes.ok) {
-        const rpcJson = await rpcRes.json().catch(() => null)
-        if (rpcJson && rpcJson.result) {
-          const rec = rpcJson.result
-          const gasHex = rec.gasUsed || '0x5208'
-          const gasNum = parseInt(gasHex, 16) || 21000
-          return {
-            gasUsed: `${gasNum.toLocaleString()} GEN`,
-            executionResult: rec.status === '0x1' ? 'SUCCESS' : 'FINALIZED',
-            consensusInfo: 'GenVM Optimistic Democracy (Multi-Validator)',
-            triggeredTxs: [],
-            timestamp: new Date().toISOString()
-          }
+      const tx = await client.getTransaction({ hash: txHash })
+      if (tx) {
+        return {
+          gasUsed: tx.gasUsed ? `${parseInt(tx.gasUsed).toLocaleString()} GEN` : '21,000 GEN',
+          executionResult: (tx.status === 'finalized' || tx.status === 'accepted') ? 'SUCCESS' : 'FINALIZED',
+          consensusInfo: 'GenVM Optimistic Democracy (Multi-Validator)',
+          triggeredTxs: [],
+          timestamp: new Date().toISOString()
         }
       }
-    } catch (e) {}
+    } catch (e) {
+      console.warn('fetchTransactionReceipt error:', e)
+    }
 
     return {
       gasUsed: '21,000 GEN',

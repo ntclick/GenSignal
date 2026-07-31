@@ -46,12 +46,17 @@ class Message:
     def __init__(self):
         self.sender_address = Address("0x0000000000000000000000000000000000000000")
 
+class EVM:
+    def contract_interface(self, cls):
+        return cls
+
 class GL:
     def __init__(self):
         self.message = Message()
         self.public = PublicDecorators()
         self.vm = VM()
         self.nondet = NonDet()
+        self.evm = EVM()
 
     class Contract:
         pass

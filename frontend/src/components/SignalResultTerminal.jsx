@@ -37,21 +37,51 @@ export const SignalResultTerminal = ({
   const isLong = signalReport.verdict?.toUpperCase().includes('LONG')
   const isShort = signalReport.verdict?.toUpperCase().includes('SHORT')
 
-  // Parse or estimate price & targets from structured schema
-  const rawPriceStr = (signalReport.trade?.entry || signalReport.current_price || '64484.00').toString().replace(/[^0-9.]/g, '')
-  const currentPrice = parseFloat(rawPriceStr) || 64484.0
-
-  const formatUsd = (val) => {
-    if (val < 0.01) return `$${val.toFixed(6)}`
-    if (val < 1) return `$${val.toFixed(4)}`
-    return `$${val.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+  // Robust dynamic price parser for any asset (Major coins, Memecoins, Sci-notation)
+  const parsePrice = (val) => {
+    if (typeof val === 'number' && !isNaN(val) && val > 0) return val
+    if (typeof val === 'string') {
+      const cleaned = val.replace(/[^0-9.eE-]/g, '')
+      const parsed = parseFloat(cleaned)
+      if (!isNaN(parsed) && parsed > 0) return parsed
+    }
+    return 0
   }
 
-  // Calculated Trading Targets from AI output schema
-  const entryPrice = signalReport.trade?.entry || currentPrice
-  const tpPrice = signalReport.trade?.takeProfit || (isLong ? currentPrice * 1.057 : isShort ? currentPrice * 0.943 : currentPrice * 1.03)
-  const slPrice = signalReport.trade?.stopLoss || (isLong ? currentPrice * 0.978 : isShort ? currentPrice * 1.022 : currentPrice * 0.985)
-  const rrRatio = signalReport.trade?.riskReward ? `1 : ${signalReport.trade.riskReward}` : '1 : 2.60'
+  // Resolve current price from signal report or fallback text
+  let currentPrice = parsePrice(signalReport.current_price) || parsePrice(signalReport.selectedCoinPrice) || parsePrice(signalReport.trade?.entry)
+
+  if (!currentPrice && signalReport.invalidation) {
+    const match = signalReport.invalidation.match(/\$([0-9.eE-]+)/)
+    if (match && match[1]) {
+      currentPrice = parsePrice(match[1])
+    }
+  }
+
+  if (!currentPrice || currentPrice <= 0) {
+    currentPrice = 1.0
+  }
+
+  const formatUsd = (val) => {
+    if (val === undefined || val === null || isNaN(val)) return '$0.00'
+    const num = Number(val)
+    if (num < 0.00001) return `$${num.toFixed(8)}`
+    if (num < 0.001) return `$${num.toFixed(6)}`
+    if (num < 1) return `$${num.toFixed(4)}`
+    return `$${num.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+  }
+
+  // Calculated Trading Targets from dynamic asset price
+  const entryPrice = parsePrice(signalReport.trade?.entry) || currentPrice
+  const tpPrice = parsePrice(signalReport.trade?.takeProfit) || (isLong ? currentPrice * 1.057 : isShort ? currentPrice * 0.943 : currentPrice * 1.03)
+  const slPrice = parsePrice(signalReport.trade?.stopLoss) || (isLong ? currentPrice * 0.978 : isShort ? currentPrice * 1.022 : currentPrice * 0.985)
+  // Dynamic Gain Target and Risk calculations
+  const gainTargetPct = entryPrice > 0 ? (((tpPrice - entryPrice) / entryPrice) * 100).toFixed(2) : '3.00'
+  const maxRiskPct = entryPrice > 0 ? (Math.abs((entryPrice - slPrice) / entryPrice) * 100).toFixed(2) : '1.50'
+  const computedRR = (entryPrice > 0 && Math.abs(entryPrice - slPrice) > 0)
+    ? (Math.abs(tpPrice - entryPrice) / Math.abs(entryPrice - slPrice)).toFixed(2)
+    : '2.00'
+  const rrRatio = signalReport.trade?.riskReward ? `1 : ${signalReport.trade.riskReward}` : `1 : ${computedRR}`
   const chartOverlays = signalReport.chart?.overlays || []
 
   const copyAnalysisToClipboard = () => {
@@ -198,7 +228,7 @@ On-Chain Proof: ${txHash ? `${explorerUrl}/tx/${txHash}` : 'GenLayer Bradbury Te
           </div>
         </div>
 
-        {/* ── 2. EXECUTION CARD (Immediate 3-Second Scanning Grid) ─────────── */}
+        {/* ── 2. EXECUTION CARD (Dynamic Calculation Grid) ─────────── */}
         <div style={{ padding: '24px 28px' }}>
           <div
             style={{
@@ -225,7 +255,9 @@ On-Chain Proof: ${txHash ? `${explorerUrl}/tx/${txHash}` : 'GenLayer Bradbury Te
               <div style={{ fontSize: 22, fontWeight: 800, fontFamily: 'var(--font-mono)', color: '#10b981', marginTop: 4 }}>
                 {formatUsd(tpPrice)}
               </div>
-              <div style={{ fontSize: 11, color: '#10b981', marginTop: 2 }}>+5.70% Gain Target</div>
+              <div style={{ fontSize: 11, color: '#10b981', marginTop: 2 }}>
+                {Number(gainTargetPct) >= 0 ? `+${gainTargetPct}%` : `${gainTargetPct}%`} Target
+              </div>
             </div>
 
             <div style={{ background: '#111113', border: '1px solid rgba(244,63,94,0.3)', borderRadius: 16, padding: 18 }}>
@@ -235,7 +267,9 @@ On-Chain Proof: ${txHash ? `${explorerUrl}/tx/${txHash}` : 'GenLayer Bradbury Te
               <div style={{ fontSize: 22, fontWeight: 800, fontFamily: 'var(--font-mono)', color: '#f43f5e', marginTop: 4 }}>
                 {formatUsd(slPrice)}
               </div>
-              <div style={{ fontSize: 11, color: '#f43f5e', marginTop: 2 }}>-2.20% Max Risk</div>
+              <div style={{ fontSize: 11, color: '#f43f5e', marginTop: 2 }}>
+                -{maxRiskPct}% Max Risk
+              </div>
             </div>
 
             <div style={{ background: '#111113', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 16, padding: 18 }}>
@@ -245,76 +279,91 @@ On-Chain Proof: ${txHash ? `${explorerUrl}/tx/${txHash}` : 'GenLayer Bradbury Te
               <div style={{ fontSize: 22, fontWeight: 800, fontFamily: 'var(--font-mono)', color: '#a855f7', marginTop: 4 }}>
                 {rrRatio}
               </div>
-              <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginTop: 2 }}>Optimal R:R Ratio</div>
+              <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginTop: 2 }}>Dynamic R:R Ratio</div>
             </div>
           </div>
 
           {/* ── 3. TRADINGVIEW LIGHTWEIGHT CHARTS ENGINE (Interactive Visual Center) ── */}
           <div style={{ marginBottom: 24 }}>
             <TradingViewLightweightChart
-              symbol={signalReport.signal?.symbol || signalReport.pair?.replace('/', '') || 'BTCUSDT'}
+              symbol={signalReport.symbol || signalReport.pair?.replace('/', '') || 'BTCUSDT'}
               currentPrice={entryPrice}
               overlays={chartOverlays}
               tradeData={{ entry: entryPrice, takeProfit: tpPrice, stopLoss: slPrice }}
             />
           </div>
 
-          {/* ── 4. AI KEY DRIVERS (Concise Cards) ──────────────────────────── */}
+          {/* ── 4. AI KEY DRIVERS (100% Dynamic Cards from Consensus) ──────────────────── */}
           <div style={{ marginBottom: 24 }}>
             <h4 style={{ fontSize: 13, textTransform: 'uppercase', fontFamily: 'var(--font-mono)', letterSpacing: '0.05em', color: 'var(--text-muted)', marginBottom: 12 }}>
               Key AI Technical Drivers
             </h4>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 12 }}>
-              <div style={{ background: '#111113', border: '1px solid rgba(255,255,255,0.06)', borderRadius: 14, padding: 14 }}>
-                <div style={{ fontSize: 12, fontWeight: 700, color: '#3b82f6', display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
-                  <TrendingUp size={14} /> Bullish Trend Alignment
+              {signalReport.supporting && signalReport.supporting.length > 0 ? (
+                signalReport.supporting.map((supText, idx) => (
+                  <div key={idx} style={{ background: '#111113', border: '1px solid rgba(255,255,255,0.06)', borderRadius: 14, padding: 14 }}>
+                    <div style={{ fontSize: 12, fontWeight: 700, color: idx === 0 ? '#3b82f6' : idx === 1 ? '#a855f7' : '#10b981', display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
+                      {idx === 0 ? <TrendingUp size={14} /> : idx === 1 ? <Layers size={14} /> : <Sparkles size={14} />}
+                      Driver #{idx + 1}
+                    </div>
+                    <div style={{ fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.4 }}>
+                      {supText}
+                    </div>
+                  </div>
+                ))
+              ) : (
+                <div style={{ background: '#111113', border: '1px solid rgba(255,255,255,0.06)', borderRadius: 14, padding: 14, fontSize: 12, color: 'var(--text-muted)' }}>
+                  Neutral market consolidation — no dominant directional driver.
                 </div>
-                <div style={{ fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.4 }}>
-                  EMA 20/50/200 positioned in strong upward momentum on 4H chart.
-                </div>
-              </div>
-
-              <div style={{ background: '#111113', border: '1px solid rgba(255,255,255,0.06)', borderRadius: 14, padding: 14 }}>
-                <div style={{ fontSize: 12, fontWeight: 700, color: '#a855f7', display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
-                  <Layers size={14} /> Liquidity Sweep
-                </div>
-                <div style={{ fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.4 }}>
-                  Sell-side liquidity sweep completed cleanly at recent demand zone.
-                </div>
-              </div>
-
-              <div style={{ background: '#111113', border: '1px solid rgba(255,255,255,0.06)', borderRadius: 14, padding: 14 }}>
-                <div style={{ fontSize: 12, fontWeight: 700, color: '#10b981', display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
-                  <Sparkles size={14} /> Relative Volume Surge
-                </div>
-                <div style={{ fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.4 }}>
-                  RVOL 1.8x higher than 20-period moving average.
-                </div>
-              </div>
+              )}
             </div>
           </div>
 
-          {/* ── 5. TECHNICAL INDICATOR METRICS BADGES ────────────────────── */}
+          {/* ── 5. TECHNICAL INDICATOR METRICS BADGES (100% Dynamic Binance Data) ── */}
           <div style={{ marginBottom: 24 }}>
             <h4 style={{ fontSize: 13, textTransform: 'uppercase', fontFamily: 'var(--font-mono)', letterSpacing: '0.05em', color: 'var(--text-muted)', marginBottom: 10 }}>
               Quantitative Indicators
             </h4>
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-              <span style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', padding: '6px 12px', borderRadius: 10, fontSize: 12, fontFamily: 'var(--font-mono)' }}>
-                RSI (14): <strong style={{ color: '#10b981' }}>62.4 (Bullish)</strong>
-              </span>
-              <span style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', padding: '6px 12px', borderRadius: 10, fontSize: 12, fontFamily: 'var(--font-mono)' }}>
-                MACD: <strong style={{ color: '#3b82f6' }}>Bullish Cross</strong>
-              </span>
-              <span style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', padding: '6px 12px', borderRadius: 10, fontSize: 12, fontFamily: 'var(--font-mono)' }}>
-                EMA 20/50: <strong style={{ color: '#10b981' }}>Golden Cross</strong>
-              </span>
-              <span style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', padding: '6px 12px', borderRadius: 10, fontSize: 12, fontFamily: 'var(--font-mono)' }}>
-                ADX: <strong style={{ color: '#a855f7' }}>28.4 (Strong Trend)</strong>
-              </span>
-              <span style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', padding: '6px 12px', borderRadius: 10, fontSize: 12, fontFamily: 'var(--font-mono)' }}>
-                ATR: <strong style={{ color: 'var(--text-primary)' }}>2.10%</strong>
-              </span>
+              {signalReport.indicators?.rsi_14 !== undefined && signalReport.indicators?.rsi_14 !== null && (
+                <span style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', padding: '6px 12px', borderRadius: 10, fontSize: 12, fontFamily: 'var(--font-mono)' }}>
+                  RSI (14): <strong style={{ color: signalReport.indicators.rsi_14 >= 60 ? '#10b981' : signalReport.indicators.rsi_14 <= 40 ? '#f43f5e' : '#f59e0b' }}>
+                    {signalReport.indicators.rsi_14} ({signalReport.indicators.rsi_zone || 'Neutral'})
+                  </strong>
+                </span>
+              )}
+
+              {signalReport.indicators?.rvol !== undefined && (
+                <span style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', padding: '6px 12px', borderRadius: 10, fontSize: 12, fontFamily: 'var(--font-mono)' }}>
+                  RVOL: <strong style={{ color: signalReport.indicators.rvol >= 1.3 ? '#10b981' : '#a855f7' }}>
+                    {signalReport.indicators.rvol}x
+                  </strong>
+                </span>
+              )}
+
+              {signalReport.indicators?.buy_ratio !== undefined && (
+                <span style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', padding: '6px 12px', borderRadius: 10, fontSize: 12, fontFamily: 'var(--font-mono)' }}>
+                  Taker Buy: <strong style={{ color: signalReport.indicators.buy_ratio >= 55 ? '#10b981' : signalReport.indicators.buy_ratio <= 45 ? '#f43f5e' : '#f59e0b' }}>
+                    {signalReport.indicators.buy_ratio}%
+                  </strong>
+                </span>
+              )}
+
+              {signalReport.indicators?.atr_pct !== undefined && (
+                <span style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', padding: '6px 12px', borderRadius: 10, fontSize: 12, fontFamily: 'var(--font-mono)' }}>
+                  ATR Volatility: <strong style={{ color: 'var(--text-primary)' }}>
+                    {signalReport.indicators.atr_pct}%
+                  </strong>
+                </span>
+              )}
+
+              {signalReport.indicators?.ema_trend && (
+                <span style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.08)', padding: '6px 12px', borderRadius: 10, fontSize: 12, fontFamily: 'var(--font-mono)' }}>
+                  EMA Structure: <strong style={{ color: '#06b6d4' }}>
+                    {signalReport.indicators.ema_trend}
+                  </strong>
+                </span>
+              )}
             </div>
           </div>
 
@@ -393,8 +442,8 @@ On-Chain Proof: ${txHash ? `${explorerUrl}/tx/${txHash}` : 'GenLayer Bradbury Te
                 <span style={{ color: '#10b981', fontWeight: 700 }}>Verified on-chain via Treasury Contract</span>
               </div>
 
-              {/* Deployment Transaction */}
-              {deploymentTxHash && (
+              {/* Deployment Transaction (Only rendered if a contract was newly deployed) */}
+              {deploymentTxHash && deploymentTxHash.startsWith('0x') && deploymentTxHash.length >= 60 && !deploymentTxHash.includes('reused') && (
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8, paddingTop: 4, borderTop: '1px solid rgba(255,255,255,0.04)' }}>
                   <span style={{ color: 'var(--text-muted)' }}>SignalOracle Deployment Tx:</span>
                   <a
@@ -412,9 +461,14 @@ On-Chain Proof: ${txHash ? `${explorerUrl}/tx/${txHash}` : 'GenLayer Bradbury Te
               {contractAddress && (
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
                   <span style={{ color: 'var(--text-muted)' }}>Intelligent Contract Address:</span>
-                  <span style={{ color: '#fff', fontWeight: 700 }}>
-                    {contractAddress.slice(0, 14)}…{contractAddress.slice(-6)}
-                  </span>
+                  <a
+                    href={contractAddress.startsWith('0x') && contractAddress.length === 42 ? `https://explorer-bradbury.genlayer.com/address/${contractAddress}` : '#'}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    style={{ color: '#06b6d4', textDecoration: 'none', fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: 4 }}
+                  >
+                    {contractAddress.slice(0, 14)}…{contractAddress.slice(-6)} <ExternalLink size={12} />
+                  </a>
                 </div>
               )}
 

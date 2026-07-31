@@ -7,7 +7,8 @@ const BackendWarmupContext = createContext({
   retryCount: 0,
   maxRetries: 20,
   estimatedWait: 30,
-  retryWarmup: () => {}
+  retryWarmup: () => {},
+  ensureBackendAlive: async () => true
 })
 
 export const useBackendWarmup = () => useContext(BackendWarmupContext)
@@ -27,7 +28,7 @@ export const BackendWarmupProvider = ({ children, backendUrl }) => {
       const controller = new AbortController()
       const timeoutId = setTimeout(() => controller.abort(), 4000)
 
-      const sanitizedUrl = (backendUrl || 'https://gensignal.onrender.com').replace(/\/+$/, '')
+      const sanitizedUrl = (backendUrl || import.meta.env.VITE_BACKEND_URL || 'http://localhost:8001').replace(/\/+$/, '')
       const response = await fetch(`${sanitizedUrl}/api/health`, {
         signal: controller.signal,
         cache: 'no-store'
@@ -88,6 +89,37 @@ export const BackendWarmupProvider = ({ children, backendUrl }) => {
     }
   }, [backendUrl])
 
+  const ensureBackendAlive = async () => {
+    if (isWarmedUpRef.current) return true
+
+    try {
+      const sanitizedUrl = (backendUrl || import.meta.env.VITE_BACKEND_URL || 'http://localhost:8001').replace(/\/+$/, '')
+      const response = await fetch(`${sanitizedUrl}/api/health`, { cache: 'no-store' })
+      if (response.ok) {
+        const data = await response.json()
+        if (data.status === 'ok') {
+          isWarmedUpRef.current = true
+          setIsBackendReady(true)
+          setBackendStatus('ready')
+          return true
+        }
+      }
+    } catch (err) {
+      // Backend is cold
+    }
+
+    setIsBackendReady(false)
+    setBackendStatus('warming')
+    startWarmup()
+
+    for (let i = 0; i < 10; i++) {
+      await new Promise(r => setTimeout(r, 3000))
+      if (isWarmedUpRef.current) return true
+    }
+
+    return isWarmedUpRef.current
+  }
+
   return (
     <BackendWarmupContext.Provider
       value={{
@@ -96,7 +128,8 @@ export const BackendWarmupProvider = ({ children, backendUrl }) => {
         retryCount,
         maxRetries: 20,
         estimatedWait,
-        retryWarmup: startWarmup
+        retryWarmup: startWarmup,
+        ensureBackendAlive
       }}
     >
       {children}
@@ -222,7 +255,7 @@ const BackendWarmupOverlay = ({ status, retryCount, maxRetries, onRetry }) => {
               Unable to connect to AI Engine
             </h2>
             <p style={{ fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.6, marginBottom: 24 }}>
-              The free backend service on Render took longer than expected to wake up. Please click below to re-attempt connection.
+              The backend service could not be reached. Please check that it is running and click below to re-attempt connection.
             </p>
             <button
               onClick={onRetry}
@@ -292,7 +325,7 @@ const BackendWarmupOverlay = ({ status, retryCount, maxRetries, onRetry }) => {
                 color: 'var(--text-muted)'
               }}
             >
-              <span>Waking Render Cloud API</span>
+              <span>Connecting to AI Engine API</span>
               <span style={{ color: '#3b82f6', fontWeight: 700 }}>
                 Attempt {retryCount} of {maxRetries}
               </span>

@@ -119,12 +119,13 @@ const PRESET_COINS = [
   { sym: 'ARB', pair: 'ARB/USDT', name: 'Arbitrum', price: '$0.4800', change: '-2.06%' }
 ]
 
-const RENDER_BACKEND_URL = 'https://gensignal.onrender.com'
+const LOCAL_BACKEND = 'http://localhost:8001'
 
 const getSanitizedBackendUrl = (url) => {
-  if (!url || typeof url !== 'string') return RENDER_BACKEND_URL
+  const defaultFallback = import.meta.env.VITE_BACKEND_URL || LOCAL_BACKEND
+  if (!url || typeof url !== 'string') return defaultFallback
   const trimmed = url.trim().replace(/\/$/, '')
-  if (!trimmed || trimmed.includes('vercel.app')) return RENDER_BACKEND_URL
+  if (!trimmed || trimmed.includes('vercel.app')) return defaultFallback
   return trimmed
 }
 
@@ -168,6 +169,9 @@ function GenSignalAppContent() {
   const [apiInput, setApiInput]               = useState(customBackendUrl)
 
   const activeBackendUrl = getSanitizedBackendUrl(customBackendUrl)
+  useEffect(() => {
+    console.log('🔌 GenSignal Active Backend API Endpoint:', activeBackendUrl)
+  }, [activeBackendUrl])
 
   // Live price refresh countdown
   const [priceCountdown, setPriceCountdown]   = useState(PRICE_REFRESH_INTERVAL_SEC)
@@ -406,7 +410,7 @@ function GenSignalAppContent() {
     for (let attempt = 1; attempt <= MAX_AUTO_RETRIES; attempt++) {
       try {
         if (attempt > 1) {
-          addLog(`🔄 [Auto-Retry ${attempt}/${MAX_AUTO_RETRIES}] Re-probing Render backend connection…`, 'warn')
+          addLog(`🔄 [Auto-Retry ${attempt}/${MAX_AUTO_RETRIES}] Re-probing GenLayer backend connection…`, 'warn')
           setExecutionStep(`Auto-Retrying Backend Connection (${attempt}/${MAX_AUTO_RETRIES})…`)
           await new Promise(r => setTimeout(r, 2500))
           await safeEnsureBackendAlive()
@@ -421,7 +425,7 @@ function GenSignalAppContent() {
         let dynamicFeeWei = FEE_WEI_BY_STRATEGY[selectedStrategy] || '50000000000000000'
 
         try {
-          const quoteRes = await fetch(`${activeBackendUrl}/api/x402/quote?network=${activeNetwork}`).catch(() => null)
+          const quoteRes = await fetch(`${activeBackendUrl}/api/x402/quote?network=${activeNetwork}&strategy=${selectedStrategy}`).catch(() => null)
           if (quoteRes && quoteRes.ok) {
             const quoteData = await quoteRes.json().catch(() => null)
             if (quoteData) {
@@ -445,7 +449,7 @@ function GenSignalAppContent() {
                 from: signingWalletAddr,
                 to: dynamicTreasury,
                 value: '0x' + BigInt(dynamicFeeWei).toString(16),
-                gas: '0x5208', // 21000 standard transfer
+                gas: '0x30D40', // 200,000 gas limit for GenLayer contract transfer execution
                 chainId: BRADBURY_CHAIN_ID_HEX
               }]
             })
@@ -484,8 +488,8 @@ function GenSignalAppContent() {
         addLog(`✔ x402 payment submitted! Treasury Tx: ${treasuryTxHash.slice(0, 18)}…`, 'hi')
 
         // Step 3: Run Signal Oracle
-        setExecutionStep('Step 3/3: Invoking Groq LLM & AI-Validators…')
-        addLog(`🧠 [Step 3/3] Invoking Groq LLM & GenLayer Optimistic Democracy (${selectedTimeframe.toUpperCase()} TF)…`, 'hi')
+        setExecutionStep('Step 3/3: Invoking GenLayer AI-Validators (GenVM)…')
+        addLog(`🧠 [Step 3/3] Invoking GenLayer AI-Validators & Optimistic Democracy (${selectedTimeframe.toUpperCase()} TF)…`, 'hi')
 
         const res = await fetch(`${activeBackendUrl}/api/signal/evaluate`, {
           method: 'POST',
@@ -538,9 +542,14 @@ function GenSignalAppContent() {
           await new Promise(r => setTimeout(r, 2000))
         }
 
-        addLog(`⛓️ Intelligent Contract committed on ${netObj.name}`, 'hi')
-        addLog(`✔ GenLayer Explorer API verified transaction on-chain!`, 'hi')
-        setSignalReport(data.signal)
+        const coinObj = coins.find(c => c.sym === selectedCoin)
+        const currentCoinPrice = data.current_price || data.signal?.current_price || coinObj?.price
+        const enrichedSignal = {
+          ...data.signal,
+          current_price: currentCoinPrice
+        }
+
+        setSignalReport(enrichedSignal)
         setShowResultModal(true)
 
         // Success! Clear error & exit function
@@ -1474,6 +1483,21 @@ function GenSignalAppContent() {
                   </span>
                 </div>
               )}
+              {contractAddress && (
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 6 }}>
+                  <a
+                    href={contractAddress.startsWith('0x') && contractAddress.length === 42 ? `${EXPLORER_URL}/address/${contractAddress}` : '#'}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    style={{ color: '#3b82f6', textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 6, fontWeight: 700 }}
+                  >
+                    🏛️ Intelligent Contract: {contractAddress.slice(0, 18)}… <ExternalLink size={13} />
+                  </a>
+                  <span style={{ fontSize: 10, color: 'var(--text-muted)' }}>
+                    (GenLayer Singleton Oracle)
+                  </span>
+                </div>
+              )}
               {paymentTxHash && (
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 6 }}>
                   <a
@@ -1510,7 +1534,7 @@ function GenSignalAppContent() {
             <p style={{ fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.6, marginBottom: 20 }}>
               {error}<br />
               <span style={{ fontSize: 11, color: 'var(--accent-cyan)', display: 'block', marginTop: 8 }}>
-                (Render Free backend service may still be waking up. Click Retry below to re-probe connection and resume execution.)
+                (Backend service or GenLayer RPC sync in progress. Click Retry below to re-probe connection and resume execution.)
               </span>
             </p>
 
@@ -1588,12 +1612,9 @@ function GenSignalAppContent() {
 export default function App() {
   const [customBackendUrl] = useState(() => {
     const stored = localStorage.getItem('gensignal_custom_backend')
-    if (stored) return stored.trim()
+    if (stored && stored.trim()) return stored.trim()
     if (import.meta.env.VITE_BACKEND_URL) return import.meta.env.VITE_BACKEND_URL
-    if (typeof window !== 'undefined' && (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')) {
-      return 'http://localhost:8001'
-    }
-    return 'https://gensignal.onrender.com'
+    return 'http://localhost:8001'
   })
 
   return (
