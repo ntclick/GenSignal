@@ -153,6 +153,10 @@ function GenSignalAppContent() {
   const [showResultModal, setShowResultModal] = useState(false)
   const [txHash, setTxHash]                   = useState('')
   const [paymentTxHash, setPaymentTxHash]     = useState('')
+  const [evaluateTxHash, setEvaluateTxHash]   = useState('')
+  const [deploymentTxHash, setDeploymentTxHash] = useState('')
+  const [contractAddress, setContractAddress] = useState('')
+  const [proof, setProof]                     = useState(null)
   const [error, setError]                     = useState('')
   const [customBackendUrl, setCustomBackendUrl] = useState(() => {
     const stored = localStorage.getItem('gensignal_custom_backend')
@@ -504,12 +508,21 @@ function GenSignalAppContent() {
         }
 
         const data = await res.json()
-        if (!data || !data.signal || !data.tx_hash || !data.tx_hash.startsWith('0x') || data.tx_hash.length < 60) {
+        if (data.status === 'oracle_failed') {
+          throw new Error(`Oracle Consensus Execution Failed: ${data.reason || 'Consensus margin check failed or timed out'}`)
+        }
+
+        const evalTx = data.evaluate_tx_hash || data.tx_hash
+        if (!data || !data.signal || !evalTx || !evalTx.startsWith('0x') || evalTx.length < 60) {
           throw new Error('Transaction submission failed. No valid on-chain transaction hash returned from GenLayer RPC.')
         }
 
-        setTxHash(data.tx_hash)
+        setTxHash(evalTx)
+        setEvaluateTxHash(evalTx)
+        if (data.deployment_tx_hash) setDeploymentTxHash(data.deployment_tx_hash)
+        if (data.contract_address) setContractAddress(data.contract_address)
         if (data.payment_tx_hash) setPaymentTxHash(data.payment_tx_hash)
+        if (data.proof) setProof(data.proof)
 
         // Step 4: Explorer API Verification
         setExecutionStep('Waiting for Explorer indexing...')
@@ -1359,6 +1372,10 @@ function GenSignalAppContent() {
           signalReport={signalReport}
           txHash={txHash}
           paymentTxHash={paymentTxHash}
+          evaluateTxHash={evaluateTxHash}
+          deploymentTxHash={deploymentTxHash}
+          contractAddress={contractAddress}
+          proof={proof}
           selectedTimeframe={selectedTimeframe}
           onClose={() => setShowResultModal(false)}
           onExecuteAnother={() => {

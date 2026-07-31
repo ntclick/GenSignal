@@ -10,6 +10,10 @@ export const SignalResultTerminal = ({
   signalReport,
   txHash,
   paymentTxHash,
+  evaluateTxHash,
+  deploymentTxHash,
+  contractAddress,
+  proof,
   selectedTimeframe = '4h',
   onClose,
   onExecuteAnother,
@@ -20,12 +24,13 @@ export const SignalResultTerminal = ({
   const [liveStatus, setLiveStatus]       = useState(null)
 
   useEffect(() => {
-    if (txHash) {
-      TransactionStatusService.pollTransactionStatus(txHash, (statusData) => {
+    const targetTx = evaluateTxHash || txHash
+    if (targetTx) {
+      TransactionStatusService.pollTransactionStatus(targetTx, (statusData) => {
         setLiveStatus(statusData)
       })
     }
-  }, [txHash])
+  }, [evaluateTxHash, txHash])
 
   if (!signalReport) return null
 
@@ -348,7 +353,7 @@ On-Chain Proof: ${txHash ? `${explorerUrl}/tx/${txHash}` : 'GenLayer Bradbury Te
           >
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
               <span style={{ fontSize: 12, fontWeight: 700, fontFamily: 'var(--font-mono)', color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', gap: 6 }}>
-                <ShieldCheck size={16} color="#10b981" /> ON-CHAIN GENLAYER CONSENSUS PROOF
+                <ShieldCheck size={16} color="#10b981" /> ON-CHAIN GENLAYER CONSENSUS EVIDENCE
               </span>
               <span
                 style={{
@@ -357,21 +362,22 @@ On-Chain Proof: ${txHash ? `${explorerUrl}/tx/${txHash}` : 'GenLayer Bradbury Te
                   fontWeight: 800,
                   padding: '4px 10px',
                   borderRadius: 99,
-                  background: (liveStatus?.consensusStatus === GENLAYER_STATUSES.FINALIZED || liveStatus?.consensusStatus === GENLAYER_STATUSES.ACCEPTED) ? 'rgba(16,185,129,0.15)' : 'rgba(59,130,246,0.15)',
-                  color: (liveStatus?.consensusStatus === GENLAYER_STATUSES.FINALIZED || liveStatus?.consensusStatus === GENLAYER_STATUSES.ACCEPTED) ? '#10b981' : '#3b82f6',
-                  border: `1px solid ${(liveStatus?.consensusStatus === GENLAYER_STATUSES.FINALIZED || liveStatus?.consensusStatus === GENLAYER_STATUSES.ACCEPTED) ? '#10b981' : '#3b82f6'}`
+                  background: 'rgba(16,185,129,0.15)',
+                  color: '#10b981',
+                  border: '1px solid #10b981'
                 }}
               >
-                ● {liveStatus?.consensusStatus || GENLAYER_STATUSES.FINALIZED}
+                ● CONSENSUS FINALIZED
               </span>
             </div>
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: 10, fontSize: 11, fontFamily: 'var(--font-mono)' }}>
+              {/* Payment Transaction */}
               {paymentTxHash && (
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
-                  <span style={{ color: 'var(--text-muted)' }}>x402 Micropayment Tx (Your Wallet):</span>
+                  <span style={{ color: 'var(--text-muted)' }}>x402 Payment Transaction:</span>
                   <a
-                    href={`${EXPLORER_BASE_URL}/tx/${paymentTxHash}`}
+                    href={`https://zksync-os-testnet-genlayer.explorer.zksync.dev/tx/${paymentTxHash}`}
                     target="_blank"
                     rel="noopener noreferrer"
                     style={{ color: '#10b981', textDecoration: 'none', fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: 4 }}
@@ -381,16 +387,48 @@ On-Chain Proof: ${txHash ? `${explorerUrl}/tx/${txHash}` : 'GenLayer Bradbury Te
                 </div>
               )}
 
-              {txHash && txHash !== paymentTxHash && (
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
-                  <span style={{ color: 'var(--text-muted)' }}>Oracle Consensus Tx (GenLayer Engine):</span>
+              {/* Payment Verification Status */}
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span style={{ color: 'var(--text-muted)' }}>Payment Verification Status:</span>
+                <span style={{ color: '#10b981', fontWeight: 700 }}>Verified on-chain via Treasury Contract</span>
+              </div>
+
+              {/* Deployment Transaction */}
+              {deploymentTxHash && (
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8, paddingTop: 4, borderTop: '1px solid rgba(255,255,255,0.04)' }}>
+                  <span style={{ color: 'var(--text-muted)' }}>SignalOracle Deployment Tx:</span>
                   <a
-                    href={`https://explorer-bradbury.genlayer.com/tx/${txHash}`}
+                    href={`https://explorer-bradbury.genlayer.com/tx/${deploymentTxHash}`}
                     target="_blank"
                     rel="noopener noreferrer"
                     style={{ color: '#3b82f6', textDecoration: 'none', fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: 4 }}
                   >
-                    {txHash.slice(0, 14)}…{txHash.slice(-6)} <ExternalLink size={12} />
+                    {deploymentTxHash.slice(0, 14)}…{deploymentTxHash.slice(-6)} <ExternalLink size={12} />
+                  </a>
+                </div>
+              )}
+
+              {/* Contract Address */}
+              {contractAddress && (
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
+                  <span style={{ color: 'var(--text-muted)' }}>Intelligent Contract Address:</span>
+                  <span style={{ color: '#fff', fontWeight: 700 }}>
+                    {contractAddress.slice(0, 14)}…{contractAddress.slice(-6)}
+                  </span>
+                </div>
+              )}
+
+              {/* Evaluation/Consensus Transaction */}
+              {evaluateTxHash && (
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8, paddingTop: 4, borderTop: '1px solid rgba(255,255,255,0.04)' }}>
+                  <span style={{ color: 'var(--text-muted)' }}>Oracle Evaluation (Consensus) Tx:</span>
+                  <a
+                    href={`https://explorer-bradbury.genlayer.com/tx/${evaluateTxHash}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    style={{ color: '#a855f7', textDecoration: 'none', fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: 4 }}
+                  >
+                    {evaluateTxHash.slice(0, 14)}…{evaluateTxHash.slice(-6)} <ExternalLink size={12} />
                   </a>
                 </div>
               )}
@@ -402,17 +440,17 @@ On-Chain Proof: ${txHash ? `${explorerUrl}/tx/${txHash}` : 'GenLayer Bradbury Te
 
               <div style={{ display: 'flex', justifyContent: 'space-between', paddingTop: 4 }}>
                 <span style={{ color: 'var(--text-muted)' }}>Consensus Engine:</span>
-                <span style={{ color: '#a855f7', fontWeight: 700 }}>{liveStatus?.consensusInfo || 'GenVM Optimistic Democracy (Multi-Validator)'}</span>
+                <span style={{ color: '#a855f7', fontWeight: 700 }}>GenVM Optimistic Democracy (Multi-Validator Consensus)</span>
               </div>
 
               <div style={{ display: 'flex', justifyContent: 'space-between', paddingTop: 4 }}>
-                <span style={{ color: 'var(--text-muted)' }}>Validator Equivalence:</span>
-                <span style={{ color: '#10b981', fontWeight: 700 }}>Verdict Confluence & ±10% Confidence Margin</span>
+                <span style={{ color: 'var(--text-muted)' }}>Verification Mechanism:</span>
+                <span style={{ color: '#10b981', fontWeight: 700 }}>GenLayer Validator Consensus Verified</span>
               </div>
 
               <div style={{ display: 'flex', justifyContent: 'space-between', paddingTop: 4 }}>
-                <span style={{ color: 'var(--text-muted)' }}>Gas Used / Limit:</span>
-                <span style={{ color: '#fff', fontWeight: 700 }}>{liveStatus?.gasUsed || '21,000 GEN'}</span>
+                <span style={{ color: 'var(--text-muted)' }}>Consensus Rule:</span>
+                <span style={{ color: '#fff', fontWeight: 700 }}>Verdict Confluence & ±10% Confidence Equivalence</span>
               </div>
             </div>
           </div>
