@@ -1320,6 +1320,10 @@ async def evaluate_signal(body: EvaluateRequest):
             # Error occurred AFTER tx submit succeeded (Consensus / Receipt Settlement level)
             detail_msg = f"GenLayer Consensus/Settlement Error (On-Chain Delay) | Tx: {eval_tx_hash} | Detail: {err_str}"
             status_code_http = 504
+        elif "execution reverted" in err_str.lower() or "estimategas" in err_str.lower():
+            # Error occurred due to EVM logic revert inside contract execution
+            detail_msg = f"GenLayer Contract Execution Error (Reverted): {err_str}"
+            status_code_http = 400
         else:
             # Error occurred BEFORE tx submit succeeded (RPC Submit / Node Backpressure level)
             detail_msg = f"GenLayer RPC Submit Error (Node Congested): {err_str}"
