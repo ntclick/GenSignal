@@ -362,7 +362,46 @@ def execute_write_contract_with_retry(client, address, function_name, args, valu
             time.sleep(3)
             continue
 
-    raise last_err or Exception("write_contract failed on all GenLayer RPC endpoints")
+def diagnose_failed_tx(tx_hash: str) -> dict:
+    """
+    Directly queries GenLayer JSON-RPC methods for exact status & execution trace:
+      - gen_getTransactionStatus: retrieves exact statusCode (12=VALIDATORS_TIMEOUT, 13=LEADER_TIMEOUT, 8=CANCELED, 6=UNDETERMINED)
+      - gen_dbg_traceTransaction: inspects result_code (0=success, 1=contract error, 2=VM LLM module error), stderr, genvm_log
+    """
+    diag = {"tx_hash": tx_hash}
+    clean_hash = tx_hash if tx_hash.startswith("0x") else "0x" + tx_hash
+
+    try:
+        resp = httpx.post(
+            PRIMARY_RPC_URL,
+            json={"jsonrpc": "2.0", "method": "gen_getTransactionStatus", "params": [{"txId": clean_hash}], "id": 1},
+            timeout=10.0
+        )
+        if resp.status_code == 200:
+            res_data = resp.json().get("result", {})
+            if isinstance(res_data, dict):
+                diag["status"] = res_data.get("status")
+                diag["statusCode"] = res_data.get("statusCode")
+    except Exception as e:
+        diag["status_error"] = str(e)
+
+    try:
+        resp_trace = httpx.post(
+            PRIMARY_RPC_URL,
+            json={"jsonrpc": "2.0", "method": "gen_dbg_traceTransaction", "params": [{"txID": clean_hash, "round": 0}], "id": 1},
+            timeout=10.0
+        )
+        if resp_trace.status_code == 200:
+            trace_res = resp_trace.json().get("result", {})
+            if isinstance(trace_res, dict):
+                diag["result_code"] = trace_res.get("result_code")
+                diag["stderr"] = trace_res.get("stderr")
+                diag["genvm_log"] = trace_res.get("genvm_log")
+    except Exception as e:
+        diag["trace_error"] = str(e)
+
+    print(f"🔍 [Tx Diagnostics] Hash {clean_hash[:18]}... -> Status: {diag.get('status')} (Code: {diag.get('statusCode')}), Result Code: {diag.get('result_code')}")
+    return diag
 
 def _format_crypto_price(price: float) -> str:
     if price == 0:
@@ -1264,10 +1303,27 @@ async def evaluate_signal(body: EvaluateRequest):
         import traceback
         traceback.print_exc()
         err_str = str(e)
-        print(f"❌ [Strict On-Chain Error] GenLayer RPC / Validator execution failed: {err_str}")
+
+        diag_info = {}
+        target_hash = eval_tx_hash if 'eval_tx_hash' in locals() and eval_tx_hash else (body.payment_tx or "")
+        if target_hash and isinstance(target_hash, str) and target_hash.startswith("0x") and len(target_hash) >= 60:
+            try:
+                diag_info = diagnose_failed_tx(target_hash)
+            except Exception as d_err:
+                print(f"⚠️ [Diagnostics Error]: {d_err}")
+
+        detail_msg = f"GenLayer x402 Micropayment transaction failed: {err_str}"
+        if diag_info.get("status"):
+            detail_msg += f" | On-Chain Status: {diag_info.get('status')} (Code {diag_info.get('statusCode')})"
+        if diag_info.get("result_code") is not None:
+            detail_msg += f" | VM Result Code: {diag_info.get('result_code')}"
+            if diag_info.get("stderr"):
+                detail_msg += f" | VM Stderr: {diag_info.get('stderr')[:120]}"
+
+        print(f"❌ [Strict On-Chain Diagnostic Error] {detail_msg}")
         raise HTTPException(
             status_code=500,
-            detail=f"GenLayer x402 Micropayment transaction failed: {err_str}"
+            detail=detail_msg
         )
 
 def _generate_fallback_signal(symbol: str, pair: str, strategy: str, timeframe: str,
