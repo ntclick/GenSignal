@@ -407,115 +407,40 @@ function GenSignalAppContent() {
       return
     }
 
-    // Single execution path (No auto-retry: stops immediately on error and prompts user with Retry button)
+    // Single Bundled Execution Path (1 single on-chain transaction)
     try {
-      // Step 2: x402 Payment — sent DIRECTLY from user's MetaMask wallet on GenLayer Bradbury
-      setExecutionStep(`STEP 01: Executing x402 Micropayment (${stratObj.fee}) from your wallet…`)
-      addLog(`💸 [Step 2/3] Fetching dynamic x402 quote & Treasury address from backend…`, 'hi')
+      const signingWalletAddr = currentAddress || activeAddress
 
-        const signingWalletAddr = currentAddress || activeAddress
-        let dynamicTreasury = TREASURY_ADDRESS
-        let dynamicFeeWei = FEE_WEI_BY_STRATEGY[selectedStrategy] || '50000000000000000'
+      // Step 2: Invoke Bundled Signal Oracle & AI-Validators (1 Single On-Chain Tx)
+      setExecutionStep('Invoking GenLayer AI-Validators (1-Step Bundled On-Chain Tx)…')
+      addLog(`🧠 [Bundled Exec] Invoking GenLayer AI-Validators & Optimistic Democracy (${selectedTimeframe.toUpperCase()} TF)…`, 'hi')
 
-        try {
-          const quoteRes = await fetch(`${activeBackendUrl}/api/x402/quote?network=${activeNetwork}&strategy=${selectedStrategy}`).catch(() => null)
-          if (quoteRes && quoteRes.ok) {
-            const quoteData = await quoteRes.json().catch(() => null)
-            if (quoteData) {
-              if (quoteData.treasury) dynamicTreasury = quoteData.treasury
-              if (quoteData.fee_wei) dynamicFeeWei = quoteData.fee_wei
-            }
-          }
-        } catch (qErr) {}
-
-        let treasuryTxHash = null
-
-        if (window.ethereum && signingWalletAddr) {
-          // Ensure the user is on Bradbury network before sending
-          await ensureBradburyNetwork()
-
-          addLog(`🔑 MetaMask: Awaiting GEN transfer approval (${stratObj.fee} → ${dynamicTreasury.slice(0, 10)}…)…`, 'hi')
-          try {
-            treasuryTxHash = await window.ethereum.request({
-              method: 'eth_sendTransaction',
-              params: [{
-                from: signingWalletAddr,
-                to: dynamicTreasury,
-                value: '0x' + BigInt(dynamicFeeWei).toString(16),
-                chainId: BRADBURY_CHAIN_ID_HEX
-              }]
-            })
-            addLog(`✔ MetaMask payment confirmed! User Tx Hash: ${treasuryTxHash}`, 'hi')
-          } catch (sendErr) {
-            const isBackpressure = sendErr.message?.includes('pipeline backpressure') || sendErr.message?.includes('-32603')
-            if (isBackpressure) {
-              throw new Error('GenLayer RPC node is currently congested (pipeline backpressure). Please wait a few seconds and click Retry.')
-            }
-            // User explicitly rejected MetaMask — fall back to backend-side payment
-            addLog(`⚠️ MetaMask payment declined: ${sendErr.message}. Using backend wallet as fallback…`, 'warn')
-          }
-        }
-
-        // Fallback: if MetaMask unavailable or rejected, call backend /api/signal/pay
-        if (!treasuryTxHash) {
-          addLog(`⚡ Fallback: Routing payment via backend testnet wallet…`, 'warn')
-          const payRes = await fetch(`${activeBackendUrl}/api/signal/pay`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              user_identity: signingWalletAddr || activeAddress,
-              pair: `${selectedCoin}/USDT`,
-              network: activeNetwork
-            })
-          })
-          if (!payRes.ok) {
-            let errText = ''
-            try { errText = await payRes.text() } catch (_) {}
-            const isBackpressure = errText.includes('pipeline backpressure') || errText.includes('-32603')
-            if (isBackpressure) {
-              throw new Error('GenLayer RPC node is currently congested (pipeline backpressure). Please wait a few seconds and click Retry.')
-            }
-            throw new Error(`Payment API failed [HTTP ${payRes.status}]: ${errText || 'Server warming up'}`)
-          }
-          const payData = await payRes.json()
-          treasuryTxHash = payData.treasury_tx_hash
-        }
-
-        if (!treasuryTxHash || !treasuryTxHash.startsWith('0x') || treasuryTxHash.length < 60) {
-          throw new Error('x402 Micropayment transaction submission failed on GenLayer RPC')
-        }
-
-        setPaymentTxHash(treasuryTxHash)
-        addLog(`✔ x402 payment submitted! Treasury Tx: ${treasuryTxHash.slice(0, 18)}…`, 'hi')
-
-        // Pacing delay (1.5s) to allow GenLayer RPC mempool to accept payment before Oracle call
-        await new Promise(r => setTimeout(r, 1500))
-
-        // Step 3: Run Signal Oracle
-        setExecutionStep('Step 3/3: Invoking GenLayer AI-Validators (GenVM)…')
-        addLog(`🧠 [Step 3/3] Invoking GenLayer AI-Validators & Optimistic Democracy (${selectedTimeframe.toUpperCase()} TF)…`, 'hi')
-
-        const res = await fetch(`${activeBackendUrl}/api/signal/evaluate`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            symbol: selectedCoin,
-            pair: `${selectedCoin}/USDT`,
-            strategy: stratObj.label,
-            timeframe: selectedTimeframe,
-            network: activeNetwork,
-            user_identity: signingWalletAddr || currentAddress || activeAddress,
-            payment_tx: treasuryTxHash,
-            user_signature: userSig || '0x_env_wallet_auto'
-          })
+      const res = await fetch(`${activeBackendUrl}/api/signal/evaluate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          symbol: selectedCoin,
+          pair: `${selectedCoin}/USDT`,
+          strategy: stratObj.label,
+          timeframe: selectedTimeframe,
+          network: activeNetwork,
+          user_identity: signingWalletAddr || currentAddress || activeAddress,
+          payment_tx: `0x_x402_sig_${userSig ? userSig.slice(0, 16) : 'auto'}`,
+          user_signature: userSig || '0x_env_wallet_auto'
         })
+      })
 
-        if (!res.ok) {
-          const errText = await res.text().catch(() => '')
-          throw new Error(`Signal Evaluation API failed [HTTP ${res.status} at ${activeBackendUrl}]: ${errText || 'Server warming up'}`)
+      if (!res.ok) {
+        let errText = ''
+        try { errText = await res.text() } catch (_) {}
+        const isBackpressure = errText.includes('pipeline backpressure') || errText.includes('-32603')
+        if (isBackpressure) {
+          throw new Error('GenLayer RPC node is currently congested (pipeline backpressure). Please wait a few seconds and click Retry.')
         }
+        throw new Error(`Signal Evaluation API failed [HTTP ${res.status} at ${activeBackendUrl}]: ${errText || 'Server warming up'}`)
+      }
 
-        const data = await res.json()
+      const data = await res.json()
 
         // Handle structured error responses from backend
         if (data.status === 'error') {
