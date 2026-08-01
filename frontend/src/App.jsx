@@ -169,11 +169,69 @@ function GenSignalAppContent() {
   const [openFaq, setOpenFaq]                 = useState(null)
   const [showApiModal, setShowApiModal]       = useState(false)
   const [apiInput, setApiInput]               = useState(customBackendUrl)
+  const [pollingState, setPollingState]       = useState(null)
 
   const activeBackendUrl = getSanitizedBackendUrl(customBackendUrl)
   useEffect(() => {
     console.log('🔌 GenSignal Active Backend API Endpoint:', activeBackendUrl)
   }, [activeBackendUrl])
+
+  const pollStatus = useCallback(async (txH, cAddr, reqI) => {
+    const targetTx = txH || (pollingState && pollingState.txHash) || evaluateTxHash
+    const targetContract = cAddr || (pollingState && pollingState.contractAddress) || contractAddress
+    const targetReqId = reqI || (pollingState && pollingState.requestId) || ''
+
+    if (!targetTx) return
+
+    try {
+      addLog(`🔍 Polling status for tx ${targetTx.slice(0, 14)}...`, 'hi')
+      const pUrl = `${activeBackendUrl}/api/signal/status?tx_hash=${encodeURIComponent(targetTx)}&contract_address=${encodeURIComponent(targetContract || '')}&request_id=${encodeURIComponent(targetReqId || '')}`
+      const res = await fetch(pUrl)
+      if (!res.ok) return
+      const sData = await res.json()
+
+      if (sData.status === 'done' && sData.signal) {
+        addLog(`🎉 [Consensus Done] Signal settled on-chain!`, 'hi')
+        const coinObj = coins.find(c => c.sym === selectedCoin)
+        const currentCoinPrice = sData.signal.current_price || coinObj?.price
+        setSignalReport({
+          ...sData.signal,
+          current_price: currentCoinPrice
+        })
+        setPollingState(null)
+        setShowResultModal(true)
+        setLoading(false)
+        setExecutionStep('')
+        setError('')
+      } else if (sData.status === 'failed') {
+        const failReason = sData.reason || 'Validators timed out'
+        addLog(`❌ [Consensus Failed] ${failReason}`, 'error')
+        setPollingState(null)
+        setLoading(false)
+        setExecutionStep('')
+        setError(`GenLayer Consensus Failed: ${failReason}. Nhấn "Thử lại" bên dưới để gửi lại request.`)
+      } else if (sData.status === 'pending') {
+        const stageName = sData.stage || (sData.raw_status_code ? `Code ${sData.raw_status_code}` : 'PENDING')
+        addLog(`⏳ GenLayer Consensus Stage: ${stageName}`, 'hi')
+        setPollingState(prev => prev ? {
+          ...prev,
+          stage: stageName,
+          note: sData.note || `Đang chờ GenLayer AI-Validators xử lý (${stageName})...`
+        } : null)
+      }
+    } catch (err) {
+      console.warn('Poll status error:', err)
+    }
+  }, [activeBackendUrl, pollingState, evaluateTxHash, contractAddress, selectedCoin, coins])
+
+  // Automatic 8-second interval polling
+  useEffect(() => {
+    if (!pollingState || !pollingState.isPolling) return
+    const timer = setInterval(() => {
+      pollStatus(pollingState.txHash, pollingState.contractAddress, pollingState.requestId)
+    }, 8000)
+    return () => clearInterval(timer)
+  }, [pollingState, pollStatus])
 
   // Live price refresh countdown
   const [priceCountdown, setPriceCountdown]   = useState(PRICE_REFRESH_INTERVAL_SEC)
@@ -441,6 +499,31 @@ function GenSignalAppContent() {
       }
 
       const data = await res.json()
+
+        if (data.status === 'pending') {
+          const evalTx = data.eval_tx_hash
+          const cAddr = data.contract_address
+          const reqId = data.request_id
+
+          if (evalTx) setTxHash(evalTx)
+          if (evalTx) setEvaluateTxHash(evalTx)
+          if (cAddr) setContractAddress(cAddr)
+
+          addLog(`⚡ [Submitted L2] Tx Hash: ${evalTx ? evalTx.slice(0, 18) : ''}... (req_id: ${reqId ? reqId.slice(0, 8) : ''})`, 'hi')
+          addLog(`⏳ GenLayer AI-Validators processing Optimistic Democracy consensus...`, 'hi')
+
+          setPollingState({
+            isPolling: true,
+            txHash: evalTx,
+            contractAddress: cAddr,
+            requestId: reqId,
+            stage: 'PENDING',
+            note: 'Đang chờ GenLayer AI-Validators xử lý (có thể mất vài phút)...'
+          })
+          setExecutionStep('Đang chờ GenLayer AI-Validators xử lý (có thể mất vài phút)...')
+          setLoading(true)
+          return
+        }
 
         // Handle structured error responses from backend
         if (data.status === 'error') {
@@ -1323,6 +1406,45 @@ function GenSignalAppContent() {
             <div style={{ width: '100%', height: 4, background: 'rgba(255,255,255,0.1)', borderRadius: 99, overflow: 'hidden', marginBottom: 20 }}>
               <div style={{ width: '100%', height: '100%', background: 'linear-gradient(90deg, var(--accent-cyan), var(--accent-indigo))', animation: 'tickerScroll 2s linear infinite' }} />
             </div>
+
+            {pollingState && (
+              <div style={{ background: 'rgba(6,182,212,0.1)', border: '1px solid rgba(6,182,212,0.3)', borderRadius: 12, padding: 14, marginBottom: 20, textAlign: 'left', fontSize: 12, fontFamily: 'var(--font-mono)' }}>
+                <div style={{ color: '#fff', fontWeight: 700, marginBottom: 6 }}>
+                  Status: <span style={{ color: 'var(--accent-cyan)' }}>{pollingState.stage || 'PENDING'}</span>
+                </div>
+                {pollingState.requestId && (
+                  <div style={{ color: 'var(--text-secondary)', fontSize: 11, marginBottom: 4 }}>
+                    Request ID: <span style={{ color: '#fff' }}>{pollingState.requestId}</span>
+                  </div>
+                )}
+                {pollingState.txHash && (
+                  <div style={{ color: 'var(--text-secondary)', fontSize: 11, marginBottom: 12 }}>
+                    Tx Hash: <a href={`https://explorer-bradbury.genlayer.com/tx/${pollingState.txHash}`} target="_blank" rel="noopener noreferrer" style={{ color: 'var(--accent-cyan)', textDecoration: 'underline' }}>
+                      {pollingState.txHash.slice(0, 18)}...
+                    </a>
+                  </div>
+                )}
+                <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 10 }}>
+                  <button
+                    className="btn btn-ghost"
+                    style={{ padding: '6px 12px', fontSize: 11 }}
+                    onClick={() => {
+                      setLoading(false)
+                      setExecutionStep('')
+                    }}
+                  >
+                    Đóng (Ẩn Modal)
+                  </button>
+                  <button
+                    className="btn btn-cyan"
+                    style={{ padding: '6px 14px', fontSize: 11 }}
+                    onClick={() => pollStatus()}
+                  >
+                    <RefreshCw size={12} /> Kiểm Tra Ngay
+                  </button>
+                </div>
+              </div>
+            )}
 
             <div className="log-stream" style={{ maxHeight: 150, textAlign: 'left', fontSize: 11 }}>
               {logs.map((l, i) => (

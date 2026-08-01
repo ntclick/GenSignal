@@ -229,6 +229,7 @@ class SignalOracle(gl.Contract):
     source_type: str
     result_json: str
     evaluator: Address
+    last_request_id: str
 
     def __init__(self, symbol: str = "BTC", pair: str = "BTC/USDT", strategy: str = "signals", user_identity: str = ""):
         self.symbol = symbol
@@ -249,10 +250,11 @@ class SignalOracle(gl.Contract):
         self.source_type = ""
         self.result_json = "{}"
         self.evaluator = gl.message.sender_address
+        self.last_request_id = ""
 
     @gl.public.write
     def evaluate_signal(self, market_data: str, payment_tx_hash: str = "",
-                        symbol: str = "", pair: str = "", strategy: str = "", user_identity: str = "") -> None:
+                        symbol: str = "", pair: str = "", strategy: str = "", user_identity: str = "", request_id: str = "") -> None:
         """
         Triggers AI-validator consensus after verifying x402 micropayment & ERC-8004 identity.
         Singleton Mode: Accepts dynamic symbol, pair, strategy, and user_identity on every call.
@@ -268,6 +270,8 @@ class SignalOracle(gl.Contract):
         if payment_tx_hash:
             self.payment_tx = payment_tx_hash
             self.paid = True
+        if request_id:
+            self.last_request_id = request_id
 
         eval_symbol = str(self.symbol)
         eval_pair = str(self.pair)
@@ -339,6 +343,7 @@ class SignalOracle(gl.Contract):
         data["source"] = self.source
         data["source_type"] = self.source_type
         data["evaluator"] = str(self.evaluator)
+        data["request_id"] = self.last_request_id
         return data
 
     def _apply_result(self, result: dict) -> None:

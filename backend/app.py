@@ -18,10 +18,10 @@ from genlayer_py import create_client, create_account, studionet, testnet_bradbu
 from genlayer_py.types import TransactionStatus
 import genlayer_py.types.transactions as _gl_tx_types
 
-# Patch genlayer_py SDK to prevent KeyError: '14' / '15' from new GenLayer Bradbury RPC status codes
-for _code in ["14", "15", "16", "17", "18", "19", "20"]:
+# Patch genlayer_py SDK to prevent KeyError for unknown GenLayer Bradbury RPC status codes (>13)
+for _code in [str(i) for i in range(14, 30)]:
     if _code not in _gl_tx_types.TRANSACTION_STATUS_NUMBER_TO_NAME:
-        _gl_tx_types.TRANSACTION_STATUS_NUMBER_TO_NAME[_code] = TransactionStatus.ACCEPTED
+        _gl_tx_types.TRANSACTION_STATUS_NUMBER_TO_NAME[_code] = TransactionStatus.UNDETERMINED
 
 load_dotenv(dotenv_path=pathlib.Path(__file__).parent.parent / ".env")
 
@@ -1196,13 +1196,15 @@ async def evaluate_signal(body: EvaluateRequest):
         print(f"✅ Using Singleton SignalOracle Contract (Model 2): {contract_address}")
 
         # 3. Execute evaluate_signal on Singleton Oracle with Exponential Backoff Retries
-        print(f"⚡ Executing evaluate_signal on Singleton Oracle on-chain...")
+        import uuid
+        request_id = uuid.uuid4().hex
+        print(f"⚡ Executing evaluate_signal (req_id: {request_id[:8]}) on Singleton Oracle on-chain...")
         time.sleep(1.5)
         eval_tx, eval_latency = execute_write_contract_with_retry(
             client=client,
             address=contract_address,
             function_name="evaluate_signal",
-            args=[market_summary, body.payment_tx or "", symbol, pair, body.strategy, checksum_identity]
+            args=[market_summary, body.payment_tx or "", symbol, pair, body.strategy, checksum_identity, request_id]
         )
         if not eval_tx:
             raise Exception("Failed to execute evaluate_signal: no transaction hash returned from RPC")
@@ -1210,157 +1212,127 @@ async def evaluate_signal(body: EvaluateRequest):
         eval_tx_hash = _clean_tx_hash(eval_tx)
         print(f"📜 Evaluation Transaction Hash: {eval_tx_hash} ({eval_latency}ms)")
 
-        # 4. Wait for evaluation tx consensus settlement (retries=30 × interval=4000ms = 120s max)
-        print(f"⏳ Waiting for GenLayer AI-Validators consensus on-chain (max 120s)...")
-        eval_receipt = None
-        try:
-            eval_receipt = client.wait_for_transaction_receipt(
-                transaction_hash=eval_tx_hash,
-                status=TransactionStatus.ACCEPTED,
-                retries=30,
-                interval=4000
-            )
-        except Exception as w_err:
-            print(f"⚠️ [Consensus Settlement Timeout]: Tx {eval_tx_hash} is Processed on L2. Proceeding to read contract state... ({w_err})")
+        # Non-blocking: Return pending immediately without waiting 120s for consensus receipt
+        return {
+            "status": "pending",
+            "eval_tx_hash": eval_tx_hash,
+            "contract_address": contract_address,
+            "request_id": request_id,
+            "symbol": symbol,
+            "pair": pair
+        }
 
-        # 5. Read the validator-settled trading signal directly from the contract state
-        print(f"📊 Reading settled signal from contract...")
-        signal_report = None
+    except Exception as e:
+        error_msg = str(e)
+        print(f"❌ [RPC Submit Error] {error_msg}")
+        raise HTTPException(status_code=503, detail=f"GenLayer RPC Submit Error: {error_msg}")
+
+@app.get("/api/signal/status")
+def get_signal_status(tx_hash: str, contract_address: Optional[str] = "", request_id: Optional[str] = ""):
+    """
+    Poll status endpoint for GenLayer AI-Validator consensus.
+    Queries gen_getTransactionStatus (1 raw JSON-RPC call) and reads contract state if settled.
+    """
+    clean_hash = tx_hash if tx_hash.startswith("0x") else "0x" + tx_hash
+
+    # 1. Fetch exact raw status from GenLayer JSON-RPC
+    status_resp = None
+    try:
+        r = httpx.post(
+            PRIMARY_RPC_URL,
+            json={"jsonrpc": "2.0", "method": "gen_getTransactionStatus", "params": [{"txId": clean_hash}], "id": 1},
+            timeout=10.0
+        )
+        if r.status_code == 200:
+            status_resp = r.json().get("result", {})
+    except Exception as e:
+        return {"status": "pending", "error": str(e)}
+
+    if not status_resp or not isinstance(status_resp, dict):
+        return {"status": "pending", "note": "Transaction status query pending"}
+
+    raw_status = status_resp.get("status", "Uninitialized")
+    status_code = int(status_resp.get("statusCode", 0))
+
+    # 2. Check if transaction failed at consensus level
+    # 8 = CANCELED, 12 = VALIDATORS_TIMEOUT, 13 = LEADER_TIMEOUT
+    if status_code in [8, 12, 13]:
+        return {
+            "status": "failed",
+            "reason": f"{raw_status} (Code {status_code})",
+            "tx_hash": clean_hash
+        }
+
+    # 3. Check if transaction is still processing
+    # 1 = PENDING, 2 = PROPOSING, 3 = COMMITTING, 4 = REVEALING
+    if status_code in [0, 1, 2, 3, 4]:
+        return {
+            "status": "pending",
+            "stage": raw_status,
+            "status_code": status_code,
+            "tx_hash": clean_hash
+        }
+
+    # 4. Check if transaction code is unknown (>13)
+    if status_code >= 14:
+        print(f"⚠️ [Unknown Status Code] Encountered Bradbury status code {status_code} for tx {clean_hash}")
+        return {
+            "status": "pending",
+            "raw_status_code": status_code,
+            "stage": raw_status,
+            "tx_hash": clean_hash
+        }
+
+    # 5. Transaction is ACCEPTED (5) or FINALIZED (7)
+    if status_code in [5, 7]:
+        # Query trace to check if contract execution reverted (FINISHED_WITH_ERROR / result_code=1)
         try:
+            r_trace = httpx.post(
+                PRIMARY_RPC_URL,
+                json={"jsonrpc": "2.0", "method": "gen_dbg_traceTransaction", "params": [{"txID": clean_hash, "round": 0}], "id": 1},
+                timeout=10.0
+            )
+            if r_trace.status_code == 200:
+                t_res = r_trace.json().get("result", {})
+                if isinstance(t_res, dict) and t_res.get("result_code") == 1:
+                    return {
+                        "status": "failed",
+                        "reason": "Contract Execution Error (result_code=1)",
+                        "stderr": t_res.get("stderr", "")
+                    }
+        except Exception:
+            pass
+
+        # Read contract state
+        target_contract = contract_address or get_active_oracle_address()
+        if not target_contract or not _is_valid_contract_address(target_contract):
+            return {"status": "pending", "note": "Contract address not resolved"}
+
+        try:
+            client = get_singleton_client("bradbury")
             signal_report = client.read_contract(
-                address=contract_address,
+                address=target_contract,
                 function_name="get_signal",
                 args=[]
             )
-        except Exception as r_err:
-            print(f"⚠️ [read_contract Error]: {r_err}")
+            if signal_report and isinstance(signal_report, dict):
+                # Verify request_id correlation to ensure this result belongs to this exact request
+                settled_req_id = str(signal_report.get("request_id", ""))
+                if request_id and settled_req_id and settled_req_id != request_id:
+                    return {
+                        "status": "pending",
+                        "note": f"Result for request {request_id[:8]} not yet settled (contract holds {settled_req_id[:8]})"
+                    }
 
-        if not signal_report or not isinstance(signal_report, dict):
-            # If state is uninitialized yet, build valid response with eval_tx_hash and Processed on L2 state
-            signal_report = {
-                "verdict": "Neutral",
-                "confidence": 75,
-                "reasoning": f"Transaction {eval_tx_hash[:14]}... is Processed on L2. GenLayer AI-Validators are completing Optimistic Democracy consensus.",
-                "supporting": [f"Processed on L2 (Nonce 425+)", "AI-Validators Voting On-Chain"],
-                "risks": ["Testnet LLM Consensus Latency"],
-                "target_price": round(last_price * 1.05, 2) if 'last_price' in locals() and last_price else 0,
-                "stop_loss": round(last_price * 0.95, 2) if 'last_price' in locals() and last_price else 0
-            }
-
-        print("🎉 Successfully retrieved trading signal from GenLayer network!")
-
-        # Enrich signal_report with expert_summary, trade levels, and source_type if missing on legacy contract
-        if isinstance(signal_report, dict):
-            if 'last_price' in locals() and last_price:
-                signal_report["current_price"] = last_price
-            
-            signal_report["source_type"] = "GenLayer LLM Consensus"
-
-            # Construct expert_summary if missing or empty
-            if not signal_report.get("expert_summary"):
-                verdict_str = signal_report.get("verdict", "Neutral")
-                conf = signal_report.get("confidence", 50)
-                supp_list = signal_report.get("supporting", [])
-                supp_summary = " and ".join(supp_list[:2]) if supp_list else f"RSI(14) at {rsi_14:.1f} with {ema_trend}"
-                signal_report["expert_summary"] = f"GenLayer AI Validators reached consensus ({verdict_str} {conf}% confidence): {supp_summary}."
-
-            # Construct trade levels if missing or empty
-            if not signal_report.get("trade") or not isinstance(signal_report.get("trade"), dict) or not signal_report["trade"].get("entry"):
-                verdict_upper = str(signal_report.get("verdict", "")).upper()
-                curr_p = last_price if 'last_price' in locals() else 1.0
-                atr_v = atr_14 if ('atr_14' in locals() and atr_14 > 0) else curr_p * ((atr_pct if 'atr_pct' in locals() else 1.5) / 100)
-                
-                if "LONG" in verdict_upper:
-                    tp = curr_p + 2.0 * atr_v
-                    sl = curr_p - 1.0 * atr_v
-                    rr = 2.0
-                elif "SHORT" in verdict_upper:
-                    tp = curr_p - 2.0 * atr_v
-                    sl = curr_p + 1.0 * atr_v
-                    rr = 2.0
-                else:
-                    tp = None
-                    sl = None
-                    rr = None
-                
-                signal_report["trade"] = {
-                    "entry": curr_p,
-                    "takeProfit": round(tp, 8) if tp is not None else None,
-                    "stopLoss": round(sl, 8) if sl is not None else None,
-                    "riskReward": rr
+                return {
+                    "status": "done",
+                    "tx_hash": clean_hash,
+                    "signal": signal_report
                 }
+        except Exception as read_err:
+            return {"status": "pending", "read_error": str(read_err)}
 
-            signal_report["indicators"] = {
-                "rsi_14": round(rsi_14, 1) if 'rsi_14' in locals() else None,
-                "rsi_zone": rsi_zone if 'rsi_zone' in locals() else "Neutral",
-                "ema_trend": ema_trend if 'ema_trend' in locals() else "Neutral",
-                "macd_status": macd_status if 'macd_status' in locals() else "Neutral",
-                "rvol": round(rvol, 2) if 'rvol' in locals() else 1.0,
-                "buy_ratio": round(last_buy_ratio, 1) if 'last_buy_ratio' in locals() else 50.0,
-                "atr_pct": round(atr_pct, 2) if 'atr_pct' in locals() else 1.5,
-                "bb_position": bb_position if 'bb_position' in locals() else "Midline",
-                "daily_trend": daily_trend if 'daily_trend' in locals() else "Neutral"
-            }
-
-        return {
-            "contract_address": contract_address,
-            "evaluate_tx_hash": eval_tx_hash,
-            "deployment_tx_hash": deploy_tx_hash,
-            "payment_tx_hash": _clean_tx_hash(body.payment_tx) if body.payment_tx else None,
-            "validator_result": signal_report,
-            "proof": {
-                "source": "GenLayer Validator Consensus",
-                "consensus": True,
-                "contract_method": "evaluate_signal",
-                "read_method": "get_signal",
-                "payment_verified": True,
-                "oracle": "GenLayer LLM Oracle"
-            },
-            "signal": signal_report
-        }
-
-    except HTTPException as he:
-        raise he
-    except Exception as e:
-        import traceback
-        traceback.print_exc()
-        err_str = str(e)
-
-        has_eval_hash = 'eval_tx_hash' in locals() and eval_tx_hash and isinstance(eval_tx_hash, str) and eval_tx_hash.startswith("0x") and len(eval_tx_hash) >= 60
-
-        diag_info = {}
-        target_hash = eval_tx_hash if has_eval_hash else (body.payment_tx or "")
-        if target_hash and isinstance(target_hash, str) and target_hash.startswith("0x") and len(target_hash) >= 60:
-            try:
-                diag_info = diagnose_failed_tx(target_hash)
-            except Exception as d_err:
-                print(f"⚠️ [Diagnostics Error]: {d_err}")
-
-        if has_eval_hash:
-            # Error occurred AFTER tx submit succeeded (Consensus / Receipt Settlement level)
-            detail_msg = f"GenLayer Consensus/Settlement Error (On-Chain Delay) | Tx: {eval_tx_hash} | Detail: {err_str}"
-            status_code_http = 504
-        elif "execution reverted" in err_str.lower() or "estimategas" in err_str.lower():
-            # Error occurred due to EVM logic revert inside contract execution
-            detail_msg = f"GenLayer Contract Execution Error (Reverted): {err_str}"
-            status_code_http = 400
-        else:
-            # Error occurred BEFORE tx submit succeeded (RPC Submit / Node Backpressure level)
-            detail_msg = f"GenLayer RPC Submit Error (Node Congested): {err_str}"
-            status_code_http = 503
-
-        if diag_info.get("status"):
-            detail_msg += f" | On-Chain Status: {diag_info.get('status')} (Code {diag_info.get('statusCode')})"
-        if diag_info.get("result_code") is not None:
-            detail_msg += f" | VM Result Code: {diag_info.get('result_code')}"
-            if diag_info.get("stderr"):
-                detail_msg += f" | VM Stderr: {diag_info.get('stderr')[:120]}"
-
-        print(f"❌ [{ 'Consensus' if has_eval_hash else 'RPC Submit' } Error] {detail_msg}")
-        raise HTTPException(
-            status_code=status_code_http,
-            detail=detail_msg
-        )
+    return {"status": "pending", "raw_status": raw_status, "status_code": status_code}
 
 def _generate_fallback_signal(symbol: str, pair: str, strategy: str, timeframe: str,
                                last_price: float, rsi_14: float, rsi_zone: str,
