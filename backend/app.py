@@ -1211,8 +1211,8 @@ async def evaluate_signal(body: EvaluateRequest):
         eval_receipt = client.wait_for_transaction_receipt(
             transaction_hash=eval_tx_hash,
             status=TransactionStatus.ACCEPTED,
-            retries=30,
-            interval=4000
+            retries=8,
+            interval=3000
         )
         if not eval_receipt:
             raise Exception("Failed to retrieve evaluation transaction receipt")
@@ -1306,15 +1306,25 @@ async def evaluate_signal(body: EvaluateRequest):
         traceback.print_exc()
         err_str = str(e)
 
+        has_eval_hash = 'eval_tx_hash' in locals() and eval_tx_hash and isinstance(eval_tx_hash, str) and eval_tx_hash.startswith("0x") and len(eval_tx_hash) >= 60
+
         diag_info = {}
-        target_hash = eval_tx_hash if 'eval_tx_hash' in locals() and eval_tx_hash else (body.payment_tx or "")
+        target_hash = eval_tx_hash if has_eval_hash else (body.payment_tx or "")
         if target_hash and isinstance(target_hash, str) and target_hash.startswith("0x") and len(target_hash) >= 60:
             try:
                 diag_info = diagnose_failed_tx(target_hash)
             except Exception as d_err:
                 print(f"⚠️ [Diagnostics Error]: {d_err}")
 
-        detail_msg = f"GenLayer x402 Micropayment transaction failed: {err_str}"
+        if has_eval_hash:
+            # Error occurred AFTER tx submit succeeded (Consensus / Receipt Settlement level)
+            detail_msg = f"GenLayer Consensus/Settlement Error (On-Chain Delay) | Tx: {eval_tx_hash} | Detail: {err_str}"
+            status_code_http = 504
+        else:
+            # Error occurred BEFORE tx submit succeeded (RPC Submit / Node Backpressure level)
+            detail_msg = f"GenLayer RPC Submit Error (Node Congested): {err_str}"
+            status_code_http = 503
+
         if diag_info.get("status"):
             detail_msg += f" | On-Chain Status: {diag_info.get('status')} (Code {diag_info.get('statusCode')})"
         if diag_info.get("result_code") is not None:
@@ -1322,9 +1332,9 @@ async def evaluate_signal(body: EvaluateRequest):
             if diag_info.get("stderr"):
                 detail_msg += f" | VM Stderr: {diag_info.get('stderr')[:120]}"
 
-        print(f"❌ [Strict On-Chain Diagnostic Error] {detail_msg}")
+        print(f"❌ [{ 'Consensus' if has_eval_hash else 'RPC Submit' } Error] {detail_msg}")
         raise HTTPException(
-            status_code=500,
+            status_code=status_code_http,
             detail=detail_msg
         )
 
