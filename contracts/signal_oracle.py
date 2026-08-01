@@ -17,23 +17,12 @@ Asset: {symbol} ({pair}) | Strategy: {strategy}
 User: {user_identity} | Payment Ref: {payment_tx}
 
 ═══════════════════════════════════════════════════════════════════════════
-AVAILABLE INDICATORS (from Binance REST API klines — the ONLY valid data):
+THE 4 CORE TECHNICAL INDICATORS (from Binance REST API klines):
 ═══════════════════════════════════════════════════════════════════════════
-• Price Action: current price, candle body direction/size, period % change
-• EMA(9), EMA(20), EMA(50) — trend alignment (computed from Close prices)
-• MACD(12,26,9) — momentum direction & histogram (computed from Close prices)
-• RSI(14) — momentum oscillator with zone label
-• Bollinger Bands(20,2) — price position relative to band (%B)
-• RVOL — relative volume vs 60-candle average
-• Taker Buy Ratio — % of volume that is aggressive buy orders (Binance k[9]/k[5])
-• ATR(14) — average true range for volatility and stop placement
-• Daily macro: 30d price trend, daily EMA20 relation, daily RSI
-
-PROHIBITED: Do NOT reference, invent, or assume:
-- Smart Money Concepts (SMC), Fair Value Gaps (FVG), Order Blocks
-- Liquidity sweeps, equal highs/lows, institutional levels
-- On-chain metrics (exchange flows, whale wallets)
-- Any indicator NOT listed above
+1. RSI (14): Momentum oscillator & overbought/oversold status
+2. EMA Stack (9, 20, 50): Moving average trend alignment
+3. MACD (12, 26, 9): Histogram momentum & trend direction
+4. Bollinger Bands (20, 2): Volatility bands & %B position
 
 ═══════════════════════════════════════════════════════════════════════════
 SIGNAL STRENGTH THRESHOLDS (MANDATORY — follow these exactly):

@@ -1354,129 +1354,112 @@ def _generate_fallback_signal(symbol: str, pair: str, strategy: str, timeframe: 
                                last_buy_ratio: float, atr_14: float, atr_pct: float,
                                bb_position: str, daily_trend: str) -> dict:
     """
-    Fallback Quantitative Engine: Generates an objective, defensible trading signal report
-    directly from Binance technical indicators if GenLayer RPC validator consensus times out.
-    Mirrors the full output schema of the GenLayer LLM oracle (expert_summary, trade, source_type).
+    Fallback Quantitative Engine: Generates an objective trading signal report
+    directly from Binance data focused on the 4 Core Technical Indicators:
+    1. RSI (14)
+    2. EMA Stack (9/20/50)
+    3. MACD (12, 26, 9)
+    4. Bollinger Bands (20, 2)
     """
     is_bull_ema = "Bullish" in ema_trend or "above" in ema_trend
     is_bear_ema = "Bearish" in ema_trend or "below" in ema_trend
     is_bull_rsi = rsi_14 >= 58
     is_bear_rsi = rsi_14 <= 42
     is_bull_macd = "Bullish" in macd_status or "positive" in macd_status
+    is_bear_macd = "Bearish" in macd_status or "negative" in macd_status
+    is_bull_bb = "Above" in bb_position or "upper" in bb_position
+    is_bear_bb = "Below" in bb_position or "lower" in bb_position
 
     score = 0
     supporting = []
 
-    # 1. EMA Alignment
-    if is_bull_ema:
-        score += 1
-        supporting.append(f"EMA Structure: {ema_trend}")
-    elif is_bear_ema:
-        score -= 1
-        supporting.append(f"EMA Structure: {ema_trend}")
-
-    # 2. RSI Zone
+    # 1. RSI (14)
     if is_bull_rsi:
         score += 1
-        supporting.append(f"RSI(14) at {rsi_14:.1f} — {rsi_zone}")
+        supporting.append(f"RSI(14): {rsi_14:.1f} ({rsi_zone})")
     elif is_bear_rsi:
         score -= 1
-        supporting.append(f"RSI(14) at {rsi_14:.1f} — {rsi_zone}")
+        supporting.append(f"RSI(14): {rsi_14:.1f} ({rsi_zone})")
 
-    # 3. MACD Momentum
+    # 2. EMA Stack (9/20/50)
+    if is_bull_ema:
+        score += 1
+        supporting.append(f"EMA Stack: {ema_trend}")
+    elif is_bear_ema:
+        score -= 1
+        supporting.append(f"EMA Stack: {ema_trend}")
+
+    # 3. MACD (12, 26, 9)
     if is_bull_macd:
         score += 1
         supporting.append(f"MACD(12,26,9): {macd_status}")
+    elif is_bear_macd:
+        score -= 1
+        supporting.append(f"MACD(12,26,9): {macd_status}")
 
-    # 4. Volume Aggression
-    if rvol >= 1.3:
-        supporting.append(f"RVOL: {rvol:.2f}x above average — volume confirms momentum")
-    if last_buy_ratio >= 55.0:
-        supporting.append(f"Taker Buy Ratio at {last_buy_ratio:.1f}% — aggressive buy pressure")
-    elif last_buy_ratio <= 45.0:
-        supporting.append(f"Taker Buy Ratio at {last_buy_ratio:.1f}% — aggressive sell pressure")
+    # 4. Bollinger Bands (20, 2)
+    if is_bull_bb:
+        score += 1
+        supporting.append(f"Bollinger Bands: {bb_position}")
+    elif is_bear_bb:
+        score -= 1
+        supporting.append(f"Bollinger Bands: {bb_position}")
 
-    # Determine Verdict + Trade Levels from ATR (mirrors oracle prompt logic)
-    tp_price: float = last_price
-    sl_price: float = last_price
-    rr_ratio: float = 2.0
+    atr_value = atr_14 if atr_14 > 0 else last_price * ((atr_pct or 1.5) / 100)
 
     if score >= 2 and rsi_14 < 72:
         verdict = "Long"
-        confidence = min(78, 55 + score * 8)
-        counterpoint = f"RVOL is {rvol:.2f}x. Daily trend: {daily_trend}."
-        invalidation = f"Clear candle close below EMA(20) — ATR-based SL at {last_price * 0.985:,.6g}"
-        # ATR-based trade levels: TP = +2×ATR, SL = -1×ATR
-        atr_value = atr_14 if atr_14 > 0 else last_price * (atr_pct / 100)
+        confidence = min(82, 55 + score * 8)
+        counterpoint = f"Bollinger Bands position: {bb_position}."
+        invalidation = f"Clear candle close below EMA(20) — SL set at {last_price - 1.0 * atr_value:,.6g}"
         tp_price = last_price + 2.0 * atr_value
         sl_price = last_price - 1.0 * atr_value
-        expert_summary = (
-            f"RSI(14) at {rsi_14:.1f} ({rsi_zone}) with {ema_trend} and RVOL {rvol:.2f}x "
-            f"supports a cautious long bias; ATR-based TP/SL applied. (Binance Engine)"
-        )
+        expert_summary = f"Core Indicators (RSI {rsi_14:.1f}, {ema_trend}, {macd_status}) confirm a Bullish trend setup. (Binance Engine)"
     elif score <= -2 and rsi_14 > 28:
         verdict = "Short"
-        confidence = min(78, 55 + abs(score) * 8)
-        counterpoint = "Potential oversold bounce if sell volume fails to sustain below key support."
-        invalidation = f"Clear candle close above EMA(20) — ATR-based SL at {last_price * 1.015:,.6g}"
-        atr_value = atr_14 if atr_14 > 0 else last_price * (atr_pct / 100)
+        confidence = min(82, 55 + abs(score) * 8)
+        counterpoint = "Potential oversold bounce if sell volume fails to sustain."
+        invalidation = f"Clear candle close above EMA(20) — SL set at {last_price + 1.0 * atr_value:,.6g}"
         tp_price = last_price - 2.0 * atr_value
         sl_price = last_price + 1.0 * atr_value
-        expert_summary = (
-            f"RSI(14) at {rsi_14:.1f} ({rsi_zone}) with {ema_trend} and RVOL {rvol:.2f}x "
-            f"supports a cautious short bias; ATR-based TP/SL applied. (Binance Engine)"
-        )
+        expert_summary = f"Core Indicators (RSI {rsi_14:.1f}, {ema_trend}, {macd_status}) confirm a Bearish trend setup. (Binance Engine)"
     else:
         verdict = "Neutral"
         confidence = 45
-        counterpoint = f"Conflicting indicator signals or neutral RSI zone ({rsi_14:.1f}). Capital preservation mode."
-        invalidation = f"Price breakout beyond ATR band ({last_price * 1.02:,.6g} / {last_price * 0.98:,.6g})"
+        counterpoint = "Mixed signals across RSI, EMA, MACD, and Bollinger Bands."
+        invalidation = "Break of key EMA20 level with volume expansion."
         tp_price = None
         sl_price = None
-        rr_ratio = None
-        expert_summary = (
-            f"RSI(14) at {rsi_14:.1f} neutral with {ema_trend}; no directional edge detected — "
-            f"standing aside pending clearer confluence. (Binance Engine)"
-        )
-
-    if not supporting:
-        supporting = [f"RSI(14) neutral at {rsi_14:.1f}", f"EMA structure: {ema_trend}"]
-
-    # Compute R:R ratio for Long/Short
-    if tp_price is not None and sl_price is not None and sl_price != last_price:
-        rr_ratio = round(abs(tp_price - last_price) / abs(last_price - sl_price), 2)
+        expert_summary = f"Core Indicators (RSI {rsi_14:.1f}, {ema_trend}) show a neutral/ranging market without clear directional bias. (Binance Engine)"
 
     return {
         "symbol": symbol,
         "pair": pair,
         "strategy": strategy,
+        "timeframe": timeframe,
         "verdict": verdict,
         "confidence": confidence,
-        "expert_summary": expert_summary,
-        "supporting": supporting[:3],
+        "supporting": supporting,
         "counterpoint": counterpoint,
         "invalidation": invalidation,
+        "expert_summary": expert_summary,
         "trade": {
             "entry": last_price,
-            "takeProfit": round(tp_price, 8) if tp_price is not None else None,
-            "stopLoss": round(sl_price, 8) if sl_price is not None else None,
-            "riskReward": rr_ratio
+            "takeProfit": round(tp_price, 8) if tp_price else None,
+            "stopLoss": round(sl_price, 8) if sl_price else None,
+            "riskReward": 2.0 if tp_price else None
         },
-        "source": "Binance REST API (Fallback Engine)",
-        "source_type": "Binance Fallback Engine",
-        "current_price": last_price,
         "indicators": {
             "rsi_14": round(rsi_14, 1),
             "rsi_zone": rsi_zone,
             "ema_trend": ema_trend,
             "macd_status": macd_status,
-            "rvol": round(rvol, 2),
-            "buy_ratio": round(last_buy_ratio, 1),
-            "atr_pct": round(atr_pct, 2),
-            "bb_position": bb_position,
-            "daily_trend": daily_trend
-        }
+            "bb_position": bb_position
+        },
+        "source": "Binance Technical Indicator Engine (Consensus Fallback)",
+        "source_type": "Binance Engine Fallback"
     }
+
 
 def _read_signal(client, address: str) -> dict:
     res = client.read_contract(address=address, function_name="get_signal", args=[])
