@@ -1080,15 +1080,9 @@ async def evaluate_signal(body: EvaluateRequest):
         #   C) no identity → proceed without payment check (env wallet mode)
 
         clean_pay_hash = _clean_tx_hash(payment_tx)
-        is_congested_bypass = bool(payment_tx and "rpc_congested_bypass" in str(payment_tx))
         is_payment_verified = bool(clean_pay_hash and len(clean_pay_hash) >= 60)
 
-        if is_congested_bypass:
-            # Congested bypass: GenLayer RPC node was full at payment time.
-            # Skip payment verification entirely and proceed directly to oracle.
-            # Oracle will use Binance fallback automatically if RPC is still congested.
-            print(f"⚡ [Payment] RPC congestion bypass detected — skipping payment check, routing to Oracle.")
-        elif is_payment_verified:
+        if is_payment_verified:
             # Path A: MetaMask or external wallet already paid — trust the tx hash
             print(f"✅ [Payment] x402 tx hash verified: {clean_pay_hash[:18]}… — proceeding to oracle.")
         elif checksum_identity:
