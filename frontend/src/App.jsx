@@ -159,6 +159,8 @@ function GenSignalAppContent() {
   const [contractAddress, setContractAddress] = useState('')
   const [proof, setProof]                     = useState(null)
   const [error, setError]                     = useState('')
+  const [rpcCongested, setRpcCongested]       = useState(false)
+  const [rpcRetryCountdown, setRpcRetryCountdown] = useState(0)
   const [customBackendUrl, setCustomBackendUrl] = useState(() => {
     const stored = localStorage.getItem('gensignal_custom_backend')
     return getSanitizedBackendUrl(stored || import.meta.env.VITE_BACKEND_URL)
@@ -584,8 +586,19 @@ function GenSignalAppContent() {
         return
 
     } catch (e) {
-      addLog(`❌ Execution failed: ${e.message}`, 'error')
+      const isCongestion = e.message?.includes('pipeline backpressure') || e.message?.includes('congested')
+      addLog(`❌ ${isCongestion ? 'RPC Congested' : 'Execution failed'}: ${e.message}`, 'error')
       setError(e.message || 'Signal evaluation failed. Click Retry below to try again.')
+      if (isCongestion) {
+        setRpcCongested(true)
+        let secs = 45
+        setRpcRetryCountdown(secs)
+        const timer = setInterval(() => {
+          secs -= 1
+          setRpcRetryCountdown(secs)
+          if (secs <= 0) clearInterval(timer)
+        }, 1000)
+      }
       setLoading(false)
       setExecutionStep('')
     }
@@ -1515,45 +1528,90 @@ function GenSignalAppContent() {
       {/* ── API Execution Failure / Retry Popup Modal ─────────────────── */}
       {error && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.88)', backdropFilter: 'blur(16px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 3000, padding: 20 }}>
-          <div className="card" style={{ maxWidth: 500, width: '100%', borderColor: error.includes('market data') || error.includes('Binance') ? '#f59e0b' : '#f43f5e', boxShadow: error.includes('market data') || error.includes('Binance') ? '0 0 50px rgba(245,158,11,0.25)' : '0 0 50px rgba(244,63,94,0.3)', textAlign: 'center', padding: 32 }}>
-            <div style={{ width: 60, height: 60, borderRadius: '50%', background: error.includes('market data') || error.includes('Binance') ? 'rgba(245,158,11,0.15)' : 'rgba(244,63,94,0.15)', border: `2px solid ${error.includes('market data') || error.includes('Binance') ? '#f59e0b' : '#f43f5e'}`, display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 20px', color: error.includes('market data') || error.includes('Binance') ? '#f59e0b' : '#f43f5e' }}>
+          <div className="card" style={{
+            maxWidth: 500, width: '100%', textAlign: 'center', padding: 32,
+            borderColor: rpcCongested ? '#f59e0b' : error.includes('market data') || error.includes('Binance') ? '#f59e0b' : '#f43f5e',
+            boxShadow: rpcCongested ? '0 0 50px rgba(245,158,11,0.25)' : error.includes('market data') || error.includes('Binance') ? '0 0 50px rgba(245,158,11,0.25)' : '0 0 50px rgba(244,63,94,0.3)'
+          }}>
+            <div style={{
+              width: 60, height: 60, borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 20px',
+              background: rpcCongested ? 'rgba(245,158,11,0.15)' : error.includes('market data') ? 'rgba(245,158,11,0.15)' : 'rgba(244,63,94,0.15)',
+              border: `2px solid ${rpcCongested ? '#f59e0b' : error.includes('market data') ? '#f59e0b' : '#f43f5e'}`,
+              color: rpcCongested ? '#f59e0b' : error.includes('market data') ? '#f59e0b' : '#f43f5e'
+            }}>
               <AlertTriangle size={32} />
             </div>
 
             <h3 style={{ fontFamily: 'var(--font-display)', fontSize: 20, color: '#fff', marginBottom: 8 }}>
-              {error.includes('market data') || error.includes('Binance')
+              {rpcCongested
+                ? '🟡 GenLayer RPC Congested'
+                : error.includes('market data') || error.includes('Binance')
                 ? '⚠️ Market Data Unavailable'
                 : error.includes('timed out') || error.includes('Retry')
                 ? '⏱️ Validator Timeout'
                 : '❌ Signal Evaluation Failed'
               }
             </h3>
-            <p style={{ fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.6, marginBottom: 8 }}>
-              {error}
-            </p>
-            <p style={{ fontSize: 11, color: 'var(--accent-cyan)', marginBottom: 20, lineHeight: 1.5 }}>
-              {error.includes('market data') || error.includes('Binance')
-                ? 'Live Binance data could not be fetched. This is required for real signal analysis. Please check your network and retry.'
-                : error.includes('timed out') || error.includes('Retry')
-                ? 'GenLayer testnet validators may be under load. Retry will re-submit the evaluation to a fresh consensus round.'
-                : 'An unexpected error occurred. Click Retry to re-run the evaluation from scratch.'
-              }
-            </p>
+
+            {rpcCongested ? (
+              <>
+                <p style={{ fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.7, marginBottom: 8 }}>
+                  GenLayer Bradbury testnet RPC node is temporarily overloaded (<code style={{ fontSize: 11, color: '#f59e0b' }}>pipeline backpressure</code>).
+                </p>
+                <p style={{ fontSize: 12, color: '#10b981', marginBottom: 16, fontWeight: 600 }}>
+                  ✅ No GEN was deducted from your wallet. The transaction was rejected before broadcast.
+                </p>
+                {rpcRetryCountdown > 0 ? (
+                  <div style={{ marginBottom: 20 }}>
+                    <div style={{ fontSize: 11, color: 'var(--text-muted)', marginBottom: 8 }}>Waiting for RPC node to recover…</div>
+                    <div style={{
+                      display: 'inline-flex', alignItems: 'center', gap: 10,
+                      background: 'rgba(245,158,11,0.1)', border: '1px solid rgba(245,158,11,0.3)',
+                      borderRadius: 10, padding: '10px 20px'
+                    }}>
+                      <div style={{
+                        width: 36, height: 36, borderRadius: '50%',
+                        border: '2px solid #f59e0b', display: 'flex', alignItems: 'center',
+                        justifyContent: 'center', fontSize: 16, fontWeight: 800, color: '#f59e0b',
+                        fontFamily: 'var(--font-mono)'
+                      }}>{rpcRetryCountdown}</div>
+                      <span style={{ fontSize: 12, color: '#f59e0b' }}>seconds before retry is available</span>
+                    </div>
+                  </div>
+                ) : (
+                  <p style={{ fontSize: 12, color: '#10b981', marginBottom: 20 }}>✔ RPC recovery wait complete. You can retry now.</p>
+                )}
+              </>
+            ) : (
+              <>
+                <p style={{ fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.6, marginBottom: 8 }}>{error}</p>
+                <p style={{ fontSize: 11, color: 'var(--accent-cyan)', marginBottom: 20, lineHeight: 1.5 }}>
+                  {error.includes('market data') || error.includes('Binance')
+                    ? 'Live Binance data could not be fetched. This is required for real signal analysis. Please check your network and retry.'
+                    : error.includes('timed out') || error.includes('Retry')
+                    ? 'GenLayer testnet validators may be under load. Retry will re-submit the evaluation to a fresh consensus round.'
+                    : 'An unexpected error occurred. Click Retry to re-run the evaluation from scratch.'
+                  }
+                </p>
+              </>
+            )}
 
             <div style={{ display: 'flex', gap: 12, justifyContent: 'center' }}>
-              <button className="btn btn-ghost" onClick={() => setError('')}>
+              <button className="btn btn-ghost" onClick={() => { setError(''); setRpcCongested(false); setRpcRetryCountdown(0) }}>
                 Close
               </button>
               <button
                 className="btn btn-cyan"
+                disabled={rpcCongested && rpcRetryCountdown > 0}
+                style={{ opacity: rpcCongested && rpcRetryCountdown > 0 ? 0.4 : 1, cursor: rpcCongested && rpcRetryCountdown > 0 ? 'not-allowed' : 'pointer' }}
                 onClick={async () => {
-                  setError('')
+                  setError(''); setRpcCongested(false); setRpcRetryCountdown(0)
                   setLoading(true)
                   await ensureBackendAlive()
                   confirmAndExecute()
                 }}
               >
-                <RefreshCw size={15} /> Retry Now
+                <RefreshCw size={15} /> {rpcCongested && rpcRetryCountdown > 0 ? `Retry in ${rpcRetryCountdown}s` : 'Retry Now'}
               </button>
             </div>
           </div>
