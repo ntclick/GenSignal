@@ -1211,8 +1211,8 @@ async def evaluate_signal(body: EvaluateRequest):
         eval_receipt = client.wait_for_transaction_receipt(
             transaction_hash=eval_tx_hash,
             status=TransactionStatus.ACCEPTED,
-            retries=8,
-            interval=3000
+            retries=30,
+            interval=4000
         )
         if not eval_receipt:
             raise Exception("Failed to retrieve evaluation transaction receipt")
