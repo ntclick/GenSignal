@@ -11,8 +11,8 @@ import { TransactionStatusService } from './services/TransactionStatusService'
 const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || 'http://localhost:8001'
 const LOCAL_STORAGE_WALLET_KEY = 'gensignal_connected_wallet'
 const PRICE_REFRESH_INTERVAL_SEC = 600
-const EXPLORER_URL = 'https://zksync-os-testnet-genlayer.explorer.zksync.dev'
-const BRADBURY_CHAIN_ID_HEX = '0x107d' // 4221
+const EXPLORER_URL = 'https://explorer-bradbury.genlayer.com'
+const BRADBURY_CHAIN_ID_HEX = '0x107d' // 4221 in Decimal
 
 // Treasury: GEN fee collected here on-chain from user's wallet directly
 const TREASURY_ADDRESS = '0xafe6dd950dc2cf561e8daba1725e0e6840f70549'
@@ -37,8 +37,8 @@ const BRADBURY_NETWORK_PARAMS = {
     symbol: 'GEN',
     decimals: 18
   },
-  rpcUrls: ['https://rpc-bradbury.genlayer.com', 'https://bradbury.genlayer.fastnode.io'],
-  blockExplorerUrls: ['https://zksync-os-testnet-genlayer.explorer.zksync.dev']
+  rpcUrls: ['https://rpc-bradbury.genlayer.com', 'https://rpc.testnet-chain.genlayer.com'],
+  blockExplorerUrls: ['https://explorer-bradbury.genlayer.com']
 }
 
 const ensureBradburyNetwork = async () => {
