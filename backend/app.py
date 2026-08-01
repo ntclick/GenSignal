@@ -69,7 +69,20 @@ COINS_MAP = [
     {"sym": "ARB", "cg_id": "arbitrum", "pair": "ARB/USDT", "name": "Arbitrum"},
 ]
 
-def get_client(network: str = ""):
+PRIMARY_RPC_URL = "https://rpc-bradbury.genlayer.com"
+SECONDARY_RPC_URL = "https://rpc.testnet-chain.genlayer.com"
+
+# Ensure testnet_bradbury chain definition includes both official RPC endpoints for automatic failover
+try:
+    testnet_bradbury.rpc_urls = {
+        'default': {
+            'http': [PRIMARY_RPC_URL, SECONDARY_RPC_URL]
+        }
+    }
+except Exception:
+    pass
+
+def get_client(network: str = "", endpoint: str = None):
     if not PRIVATE_KEY:
         raise RuntimeError("GENLAYER_PRIVATE_KEY is not set in .env")
     key = PRIVATE_KEY if PRIVATE_KEY.startswith("0x") else "0x" + PRIVATE_KEY
@@ -80,7 +93,8 @@ def get_client(network: str = ""):
     else:
         chain = testnet_bradbury
 
-    client = create_client(chain=chain, account=account)
+    chosen_endpoint = endpoint or PRIMARY_RPC_URL
+    client = create_client(chain=chain, endpoint=chosen_endpoint, account=account)
 
     # Patch client.provider.make_request to unwrap dict result for gen_call RPC response
     # Fixes GenLayer Bradbury RPC return format discrepancy with genlayer_py SDK
@@ -317,14 +331,15 @@ def get_admin_address(network: Optional[str] = "bradbury"):
 
 # ── EXPONENTIAL RETRY FOR TRANSIENT RPC WRITE_CONTRACT CALLS ────────────────
 def execute_write_contract_with_retry(client, address, function_name, args, value=0, max_retries=3):
-    """Executes client.write_contract with exponential retries for transient RPC errors."""
+    """Executes client.write_contract with failover across Primary & Secondary GenLayer RPC endpoints."""
     last_err = None
-    backoff = 1.0
+    rpc_list = [PRIMARY_RPC_URL, SECONDARY_RPC_URL]
 
-    for attempt in range(1, max_retries + 1):
-        t0 = time.time()
+    for rpc_url in rpc_list:
         try:
-            w_tx = client.write_contract(
+            active_client = get_client("bradbury", endpoint=rpc_url)
+            t0 = time.time()
+            w_tx = active_client.write_contract(
                 address=address,
                 function_name=function_name,
                 args=args,
@@ -332,22 +347,16 @@ def execute_write_contract_with_retry(client, address, function_name, args, valu
             )
             t1 = time.time()
             latency_ms = round((t1 - t0) * 1000, 2)
-            print(f"⚡ [RPC write_contract Attempt {attempt}] Executed in {latency_ms}ms -> Tx: {w_tx}")
+            print(f"⚡ [RPC write_contract via {rpc_url}] Executed in {latency_ms}ms -> Tx: {w_tx}")
             if w_tx:
                 return w_tx, latency_ms
         except Exception as err:
             last_err = err
-            err_str = str(err)
-            print(f"⚠️ [RPC write_contract Attempt {attempt}/{max_retries} Failed]: {err}")
-            # Fast-fail on pipeline backpressure — retrying is pointless when the node queue is full
-            if "pipeline backpressure" in err_str or "l1_sender_commit" in err_str:
-                print(f"❌ [RPC] Pipeline backpressure detected — aborting retries immediately.")
-                raise err
-            if attempt < max_retries:
-                time.sleep(backoff)
-                backoff *= 2.0
+            print(f"⚠️ [RPC write_contract Failed via {rpc_url}]: {err}")
+            # If primary RPC fails or hits backpressure, continue to next RPC in list (SECONDARY_RPC_URL)
+            continue
 
-    raise last_err or Exception("write_contract returned no transaction hash after retries")
+    raise last_err or Exception("write_contract failed on all GenLayer RPC endpoints")
 
 def _format_crypto_price(price: float) -> str:
     if price == 0:
