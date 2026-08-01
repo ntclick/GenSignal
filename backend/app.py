@@ -1165,41 +1165,16 @@ async def evaluate_signal(body: EvaluateRequest):
         eval_tx_hash = _clean_tx_hash(eval_tx)
         print(f"📜 Evaluation Transaction Hash: {eval_tx_hash} ({eval_latency}ms)")
 
-        # 4. Wait for evaluation tx — smart retry: max 80s, then re-submit once and wait 60s more
-        # retries=20 × interval=4000ms = 80 seconds max for first attempt
-        eval_receipt = None
-        try:
-            eval_receipt = client.wait_for_transaction_receipt(
-                transaction_hash=eval_tx_hash,
-                status=TransactionStatus.ACCEPTED,
-                retries=20,
-                interval=4000
-            )
-        except Exception as wait_err:
-            print(f"⚠️ [Smart Retry] First wait timed out ({wait_err}). Re-submitting evaluate_signal...")
-            try:
-                retry_tx, _ = execute_write_contract_with_retry(
-                    client=client,
-                    address=contract_address,
-                    function_name="evaluate_signal",
-                    args=[market_summary, body.payment_tx or "", symbol, pair, body.strategy, checksum_identity]
-                )
-                if retry_tx:
-                    retry_tx_hash = _clean_tx_hash(retry_tx)
-                    print(f"📜 Retry Evaluation Tx: {retry_tx_hash}")
-                    eval_tx_hash = retry_tx_hash  # update to latest tx
-                    eval_receipt = client.wait_for_transaction_receipt(
-                        transaction_hash=retry_tx_hash,
-                        status=TransactionStatus.ACCEPTED,
-                        retries=15,
-                        interval=4000
-                    )
-            except Exception as retry_err:
-                print(f"⚠️ [Smart Retry] Retry also timed out: {retry_err}. Triggering fallback engine.")
-                raise retry_err
-
+        # 4. Wait for evaluation tx consensus settlement (retries=30 × interval=4000ms = 120s max)
+        print(f"⏳ Waiting for GenLayer AI-Validators consensus on-chain (max 120s)...")
+        eval_receipt = client.wait_for_transaction_receipt(
+            transaction_hash=eval_tx_hash,
+            status=TransactionStatus.ACCEPTED,
+            retries=30,
+            interval=4000
+        )
         if not eval_receipt:
-            raise Exception("Failed to retrieve evaluation transaction receipt after retry")
+            raise Exception("Failed to retrieve evaluation transaction receipt")
 
         # 5. Read the validator-settled trading signal directly from the contract state
         print(f"📊 Reading settled signal from contract...")
@@ -1289,65 +1264,11 @@ async def evaluate_signal(body: EvaluateRequest):
         import traceback
         traceback.print_exc()
         err_str = str(e)
-        print(f"⚠️ [Oracle Error] {err_str}")
-
-        # CRITICAL: If Binance data was never fetched successfully,
-        # do NOT generate a fake fallback with default values (RSI 50, EMA Neutral).
-        # Return a structured error so the frontend can show a retry UI.
-        if not binance_data_ok:
-            print(f"❌ [No Real Data] Binance fetch failed — refusing to return fake defaults.")
-            return {
-                "status": "error",
-                "error_code": "market_data_unavailable",
-                "message": f"Could not fetch live market data from Binance for {symbol}/USDT. Please retry in a few seconds.",
-                "detail": binance_error_msg or err_str,
-                "retryable": True
-            }
-
-        # Binance data IS available — GenLayer validator timed out.
-        # Use real Binance indicators to generate quantitative fallback signal.
-        print(f"⚠️ [Consensus Fallback] GenLayer RPC timed out — generating Binance quantitative fallback with REAL indicators...")
-        try:
-            fallback_signal = _generate_fallback_signal(
-                symbol=symbol,
-                pair=f"{symbol}/USDT",
-                strategy=body.strategy,
-                timeframe=timeframe,
-                last_price=last_price if 'last_price' in locals() else 1.0,
-                rsi_14=rsi_14 if 'rsi_14' in locals() else 50.0,
-                rsi_zone=rsi_zone if 'rsi_zone' in locals() else "Neutral",
-                ema_trend=ema_trend if 'ema_trend' in locals() else "Neutral",
-                macd_status=macd_status if 'macd_status' in locals() else "Neutral",
-                rvol=rvol if 'rvol' in locals() else 1.0,
-                last_buy_ratio=last_buy_ratio if 'last_buy_ratio' in locals() else 50.0,
-                atr_14=atr_14 if 'atr_14' in locals() else 0.0,
-                atr_pct=atr_pct if 'atr_pct' in locals() else 1.5,
-                bb_position=bb_position if 'bb_position' in locals() else "Midline",
-                daily_trend=daily_trend if 'daily_trend' in locals() else "Neutral"
-            )
-            return {
-                "contract_address": contract_address or get_active_oracle_address(),
-                "evaluate_tx_hash": eval_tx_hash if 'eval_tx_hash' in locals() and eval_tx_hash else "0x_consensus_timeout_fallback",
-                "deployment_tx_hash": None,
-                "payment_tx_hash": _clean_tx_hash(body.payment_tx) if body.payment_tx else None,
-                "validator_result": fallback_signal,
-                "proof": {
-                    "source": "Binance Technical Engine (Validator Timeout Fallback)",
-                    "consensus": False,
-                    "fallback": True,
-                    "contract_method": "evaluate_signal",
-                    "read_method": "fallback_engine",
-                    "payment_verified": True,
-                    "note": "GenLayer Testnet RPC validator timed out — fallback applied to protect user experience."
-                },
-                "signal": fallback_signal
-            }
-        except Exception as fb_err:
-            print(f"❌ Fallback generation error: {fb_err}")
-            return {
-                "status": "oracle_failed",
-                "reason": f"Validator consensus failed: {str(e)}"
-            }
+        print(f"❌ [Strict On-Chain Error] GenLayer RPC / Validator execution failed: {err_str}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"GenLayer x402 Micropayment transaction failed: {err_str}"
+        )
 
 def _generate_fallback_signal(symbol: str, pair: str, strategy: str, timeframe: str,
                                last_price: float, rsi_14: float, rsi_zone: str,
