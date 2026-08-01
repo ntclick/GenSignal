@@ -70,13 +70,13 @@ COINS_MAP = [
 ]
 
 PRIMARY_RPC_URL = "https://rpc-bradbury.genlayer.com"
-SECONDARY_RPC_URL = "https://rpc.testnet-chain.genlayer.com"
+SECONDARY_RPC_URL = "https://rpc-bradbury.genlayer.com"
 
-# Ensure testnet_bradbury chain definition includes both official RPC endpoints for automatic failover
+# Ensure testnet_bradbury chain definition uses the working RPC endpoint
 try:
     testnet_bradbury.rpc_urls = {
         'default': {
-            'http': [PRIMARY_RPC_URL, SECONDARY_RPC_URL]
+            'http': [PRIMARY_RPC_URL]
         }
     }
 except Exception:
@@ -358,7 +358,8 @@ def execute_write_contract_with_retry(client, address, function_name, args, valu
                 _GENLAYER_CLIENTS.clear()
             except Exception:
                 pass
-            # If primary RPC fails, hit backpressure, or has nonce mismatch, continue to next RPC in list
+            # Pause 3 seconds for GenLayer L1 commit queue to drain when backpressure occurs
+            time.sleep(3)
             continue
 
     raise last_err or Exception("write_contract failed on all GenLayer RPC endpoints")
