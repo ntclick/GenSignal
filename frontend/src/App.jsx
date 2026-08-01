@@ -512,21 +512,46 @@ function GenSignalAppContent() {
         }
 
         const data = await res.json()
+
+        // Handle structured error responses from backend
+        if (data.status === 'error') {
+          const errMsg = data.message || 'Signal evaluation failed'
+          addLog(`❌ [Error] ${errMsg}`, 'error')
+          if (data.retryable) {
+            throw new Error(`${errMsg} (Tap Retry to try again)`)
+          }
+          throw new Error(errMsg)
+        }
+
         if (data.status === 'oracle_failed') {
           throw new Error(`Oracle Consensus Execution Failed: ${data.reason || 'Consensus margin check failed or timed out'}`)
         }
 
         const evalTx = data.evaluate_tx_hash || data.tx_hash
-        if (!data || !data.signal || !evalTx || !evalTx.startsWith('0x') || evalTx.length < 60) {
+
+        // Binance Fallback path: no evalTx required, signal is from Binance engine
+        const isBinanceFallback = data.proof?.fallback === true
+
+        if (!data || !data.signal) {
+          throw new Error('No signal data returned from server.')
+        }
+
+        if (!isBinanceFallback && (!evalTx || !evalTx.startsWith('0x') || evalTx.length < 60)) {
           throw new Error('Transaction submission failed. No valid on-chain transaction hash returned from GenLayer RPC.')
         }
 
-        setTxHash(evalTx)
-        setEvaluateTxHash(evalTx)
+        if (evalTx) setTxHash(evalTx)
+        if (evalTx) setEvaluateTxHash(evalTx)
         if (data.deployment_tx_hash) setDeploymentTxHash(data.deployment_tx_hash)
         if (data.contract_address) setContractAddress(data.contract_address)
         if (data.payment_tx_hash) setPaymentTxHash(data.payment_tx_hash)
         if (data.proof) setProof(data.proof)
+
+        if (isBinanceFallback) {
+          addLog(`⚡ [Binance Engine] GenLayer validator timed out. Using real Binance indicator analysis.`, 'warn')
+        } else {
+          addLog(`✅ GenLayer LLM Consensus settled on-chain: ${evalTx?.slice(0, 18)}…`, 'hi')
+        }
 
         // Step 4: Explorer API Verification
         setExecutionStep('Waiting for Explorer indexing...')
@@ -1483,36 +1508,6 @@ function GenSignalAppContent() {
                   </span>
                 </div>
               )}
-              {contractAddress && (
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 6 }}>
-                  <a
-                    href={contractAddress.startsWith('0x') && contractAddress.length === 42 ? `${EXPLORER_URL}/address/${contractAddress}` : '#'}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    style={{ color: '#3b82f6', textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 6, fontWeight: 700 }}
-                  >
-                    🏛️ Intelligent Contract: {contractAddress.slice(0, 18)}… <ExternalLink size={13} />
-                  </a>
-                  <span style={{ fontSize: 10, color: 'var(--text-muted)' }}>
-                    (GenLayer Singleton Oracle)
-                  </span>
-                </div>
-              )}
-              {paymentTxHash && (
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 6 }}>
-                  <a
-                    href={`${EXPLORER_URL}/tx/${paymentTxHash}`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    style={{ color: '#10b981', textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 6, fontWeight: 700 }}
-                  >
-                    💸 x402 Payment Tx: {paymentTxHash.slice(0, 18)}… <ExternalLink size={13} />
-                  </a>
-                  <span style={{ fontSize: 10, color: 'var(--text-muted)' }}>
-                    (Treasury Fee Paid: 0.05 GEN)
-                  </span>
-                </div>
-              )}
             </div>
           )}
         </div>
@@ -1520,22 +1515,33 @@ function GenSignalAppContent() {
           </main>
         </div>
       )}
-      {/* ── API Execution Failure / Retry Popup Modal ───────────────────── */}
+
+      {/* ── API Execution Failure / Retry Popup Modal ─────────────────── */}
       {error && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.88)', backdropFilter: 'blur(16px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 3000, padding: 20 }}>
-          <div className="card" style={{ maxWidth: 480, width: '100%', borderColor: '#f43f5e', boxShadow: '0 0 50px rgba(244,63,94,0.3)', textAlign: 'center', padding: 32 }}>
-            <div style={{ width: 60, height: 60, borderRadius: '50%', background: 'rgba(244,63,94,0.15)', border: '2px solid #f43f5e', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 20px', color: '#f43f5e' }}>
+          <div className="card" style={{ maxWidth: 500, width: '100%', borderColor: error.includes('market data') || error.includes('Binance') ? '#f59e0b' : '#f43f5e', boxShadow: error.includes('market data') || error.includes('Binance') ? '0 0 50px rgba(245,158,11,0.25)' : '0 0 50px rgba(244,63,94,0.3)', textAlign: 'center', padding: 32 }}>
+            <div style={{ width: 60, height: 60, borderRadius: '50%', background: error.includes('market data') || error.includes('Binance') ? 'rgba(245,158,11,0.15)' : 'rgba(244,63,94,0.15)', border: `2px solid ${error.includes('market data') || error.includes('Binance') ? '#f59e0b' : '#f43f5e'}`, display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 20px', color: error.includes('market data') || error.includes('Binance') ? '#f59e0b' : '#f43f5e' }}>
               <AlertTriangle size={32} />
             </div>
 
             <h3 style={{ fontFamily: 'var(--font-display)', fontSize: 20, color: '#fff', marginBottom: 8 }}>
-              Backend Connection Timeout
+              {error.includes('market data') || error.includes('Binance')
+                ? '⚠️ Market Data Unavailable'
+                : error.includes('timed out') || error.includes('Retry')
+                ? '⏱️ Validator Timeout'
+                : '❌ Signal Evaluation Failed'
+              }
             </h3>
-            <p style={{ fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.6, marginBottom: 20 }}>
-              {error}<br />
-              <span style={{ fontSize: 11, color: 'var(--accent-cyan)', display: 'block', marginTop: 8 }}>
-                (Backend service or GenLayer RPC sync in progress. Click Retry below to re-probe connection and resume execution.)
-              </span>
+            <p style={{ fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.6, marginBottom: 8 }}>
+              {error}
+            </p>
+            <p style={{ fontSize: 11, color: 'var(--accent-cyan)', marginBottom: 20, lineHeight: 1.5 }}>
+              {error.includes('market data') || error.includes('Binance')
+                ? 'Live Binance data could not be fetched. This is required for real signal analysis. Please check your network and retry.'
+                : error.includes('timed out') || error.includes('Retry')
+                ? 'GenLayer testnet validators may be under load. Retry will re-submit the evaluation to a fresh consensus round.'
+                : 'An unexpected error occurred. Click Retry to re-run the evaluation from scratch.'
+              }
             </p>
 
             <div style={{ display: 'flex', gap: 12, justifyContent: 'center' }}>
@@ -1551,12 +1557,13 @@ function GenSignalAppContent() {
                   confirmAndExecute()
                 }}
               >
-                <RefreshCw size={15} /> Retry Request Now
+                <RefreshCw size={15} /> Retry Now
               </button>
             </div>
           </div>
         </div>
       )}
+
 
       {/* ── API Server Settings Modal ────────────────────────────────────── */}
       {showApiModal && (

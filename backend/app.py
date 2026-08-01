@@ -831,6 +831,8 @@ async def evaluate_signal(body: EvaluateRequest):
 
     # ── Step 1: Fetch multi-timeframe market data (Binance klines) ─────────────
     market_summary = f"Pair: {symbol}/USDT. Primary Timeframe: {timeframe.upper()}. Strategy: {body.strategy}. Asset Class: {asset_class}."
+    binance_data_ok = False   # Only True when real Binance data is successfully fetched
+    binance_error_msg = None
     try:
         async with httpx.AsyncClient(timeout=14.0, follow_redirects=True) as http_client:
             # Fetch 60 candles to compute EMA50 and MACD accurately
@@ -1044,8 +1046,11 @@ async def evaluate_signal(body: EvaluateRequest):
                     f"DATA SOURCE: All indicators computed from Binance REST API klines (OHLCV + taker volume).\n"
                     f"Only evaluate indicators listed above. Do not invent SMC zones, order blocks, or liquidity sweeps unless explicitly provided."
                 )
+                binance_data_ok = True   # ← Real data confirmed fetched
     except Exception as e:
+        binance_error_msg = str(e)
         market_summary += f" (Market data unavailable: {e}. Issue Verdict=Skip with confidence=0.)"
+        print(f"❌ [Binance] Data fetch failed: {e}")
 
     # ── Step 2: GenLayer Oracle Write/Read Lifecycle (Consensus-Settled Only) ──
     contract_address = None
@@ -1261,11 +1266,25 @@ async def evaluate_signal(body: EvaluateRequest):
     except Exception as e:
         import traceback
         traceback.print_exc()
-        print(f"⚠️ [Consensus Fallback] GenLayer RPC / Validator timed out: {e}. Generating direct quantitative signal fallback...")
-        
-        # Resilient Fallback: If GenLayer validator nodes time out on testnet,
-        # generate an objective, defensible quantitative report directly from Binance indicators
-        # so the user ALWAYS receives a valid result without seeing a connection error.
+        err_str = str(e)
+        print(f"⚠️ [Oracle Error] {err_str}")
+
+        # CRITICAL: If Binance data was never fetched successfully,
+        # do NOT generate a fake fallback with default values (RSI 50, EMA Neutral).
+        # Return a structured error so the frontend can show a retry UI.
+        if not binance_data_ok:
+            print(f"❌ [No Real Data] Binance fetch failed — refusing to return fake defaults.")
+            return {
+                "status": "error",
+                "error_code": "market_data_unavailable",
+                "message": f"Could not fetch live market data from Binance for {symbol}/USDT. Please retry in a few seconds.",
+                "detail": binance_error_msg or err_str,
+                "retryable": True
+            }
+
+        # Binance data IS available — GenLayer validator timed out.
+        # Use real Binance indicators to generate quantitative fallback signal.
+        print(f"⚠️ [Consensus Fallback] GenLayer RPC timed out — generating Binance quantitative fallback with REAL indicators...")
         try:
             fallback_signal = _generate_fallback_signal(
                 symbol=symbol,
