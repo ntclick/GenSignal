@@ -353,7 +353,12 @@ def execute_write_contract_with_retry(client, address, function_name, args, valu
         except Exception as err:
             last_err = err
             print(f"⚠️ [RPC write_contract Failed via {rpc_url}]: {err}")
-            # If primary RPC fails or hits backpressure, continue to next RPC in list (SECONDARY_RPC_URL)
+            # Reset cached client state to resolve any nonce desync (-32602)
+            try:
+                _GENLAYER_CLIENTS.clear()
+            except Exception:
+                pass
+            # If primary RPC fails, hit backpressure, or has nonce mismatch, continue to next RPC in list
             continue
 
     raise last_err or Exception("write_contract failed on all GenLayer RPC endpoints")
@@ -1145,9 +1150,10 @@ async def evaluate_signal(body: EvaluateRequest):
 
         print(f"✅ Using Singleton SignalOracle Contract (Model 2): {contract_address}")
 
-        # 3. Execute evaluate_signal on Singleton Oracle
+        # 3. Execute evaluate_signal on Singleton Oracle with Dual-RPC Failover
         print(f"⚡ Executing evaluate_signal on Singleton Oracle on-chain...")
-        eval_tx = client.write_contract(
+        eval_tx, eval_latency = execute_write_contract_with_retry(
+            client=client,
             address=contract_address,
             function_name="evaluate_signal",
             args=[market_summary, body.payment_tx or "", symbol, pair, body.strategy, checksum_identity]
@@ -1156,7 +1162,7 @@ async def evaluate_signal(body: EvaluateRequest):
             raise Exception("Failed to execute evaluate_signal: no transaction hash returned from RPC")
 
         eval_tx_hash = _clean_tx_hash(eval_tx)
-        print(f"📜 Evaluation Transaction Hash: {eval_tx_hash}")
+        print(f"📜 Evaluation Transaction Hash: {eval_tx_hash} ({eval_latency}ms)")
 
         # 4. Wait for evaluation tx — smart retry: max 80s, then re-submit once and wait 60s more
         # retries=20 × interval=4000ms = 80 seconds max for first attempt
@@ -1171,7 +1177,8 @@ async def evaluate_signal(body: EvaluateRequest):
         except Exception as wait_err:
             print(f"⚠️ [Smart Retry] First wait timed out ({wait_err}). Re-submitting evaluate_signal...")
             try:
-                retry_tx = client.write_contract(
+                retry_tx, _ = execute_write_contract_with_retry(
+                    client=client,
                     address=contract_address,
                     function_name="evaluate_signal",
                     args=[market_summary, body.payment_tx or "", symbol, pair, body.strategy, checksum_identity]
