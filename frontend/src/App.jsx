@@ -442,7 +442,6 @@ function GenSignalAppContent() {
                 from: signingWalletAddr,
                 to: dynamicTreasury,
                 value: '0x' + BigInt(dynamicFeeWei).toString(16),
-                gas: '0x30D40', // 200,000 gas limit for GenLayer contract transfer execution
                 chainId: BRADBURY_CHAIN_ID_HEX
               }]
             })
@@ -488,6 +487,9 @@ function GenSignalAppContent() {
 
         setPaymentTxHash(treasuryTxHash)
         addLog(`✔ x402 payment submitted! Treasury Tx: ${treasuryTxHash.slice(0, 18)}…`, 'hi')
+
+        // Pacing delay (1.5s) to allow GenLayer RPC mempool to accept payment before Oracle call
+        await new Promise(r => setTimeout(r, 1500))
 
         // Step 3: Run Signal Oracle
         setExecutionStep('Step 3/3: Invoking GenLayer AI-Validators (GenVM)…')
