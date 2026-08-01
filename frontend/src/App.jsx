@@ -405,20 +405,11 @@ function GenSignalAppContent() {
       return
     }
 
-    // 2. Automatic Retry Loop (Up to 3 attempts) for Backend API Calls
-    const MAX_AUTO_RETRIES = 3
-    for (let attempt = 1; attempt <= MAX_AUTO_RETRIES; attempt++) {
-      try {
-        if (attempt > 1) {
-          addLog(`🔄 [Auto-Retry ${attempt}/${MAX_AUTO_RETRIES}] Re-probing GenLayer backend connection…`, 'warn')
-          setExecutionStep(`Auto-Retrying Backend Connection (${attempt}/${MAX_AUTO_RETRIES})…`)
-          await new Promise(r => setTimeout(r, 2500))
-          await safeEnsureBackendAlive()
-        }
-
-        // Step 2: x402 Payment — sent DIRECTLY from user's MetaMask wallet on GenLayer Bradbury
-        setExecutionStep(`STEP 01: Executing x402 Micropayment (${stratObj.fee}) from your wallet…`)
-        addLog(`💸 [Step 2/3] Fetching dynamic x402 quote & Treasury address from backend…`, 'hi')
+    // Single execution path (No auto-retry: stops immediately on error and prompts user with Retry button)
+    try {
+      // Step 2: x402 Payment — sent DIRECTLY from user's MetaMask wallet on GenLayer Bradbury
+      setExecutionStep(`STEP 01: Executing x402 Micropayment (${stratObj.fee}) from your wallet…`)
+      addLog(`💸 [Step 2/3] Fetching dynamic x402 quote & Treasury address from backend…`, 'hi')
 
         const signingWalletAddr = currentAddress || activeAddress
         let dynamicTreasury = TREASURY_ADDRESS
@@ -583,16 +574,12 @@ function GenSignalAppContent() {
         setExecutionStep('')
         return
 
-      } catch (e) {
-        lastError = e
-        addLog(`⚠️ Attempt ${attempt}/${MAX_AUTO_RETRIES} failed: ${e.message}`, 'warn')
-      }
+    } catch (e) {
+      addLog(`❌ Execution failed: ${e.message}`, 'error')
+      setError(e.message || 'Signal evaluation failed. Click Retry below to try again.')
+      setLoading(false)
+      setExecutionStep('')
     }
-
-    // If all 3 auto-retries fail, display the manual Retry Modal to the user!
-    setError(lastError?.message || 'Backend connection failed after 3 automatic retries')
-    setLoading(false)
-    setExecutionStep('')
   }
 
   const copyAddr = (addr) => {
