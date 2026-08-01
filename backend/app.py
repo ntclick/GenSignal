@@ -362,6 +362,8 @@ def execute_write_contract_with_retry(client, address, function_name, args, valu
             time.sleep(3)
             continue
 
+    raise last_err or Exception("write_contract failed on all GenLayer RPC endpoints")
+
 def diagnose_failed_tx(tx_hash: str) -> dict:
     """
     Directly queries GenLayer JSON-RPC methods for exact status & execution trace:
@@ -400,7 +402,7 @@ def diagnose_failed_tx(tx_hash: str) -> dict:
     except Exception as e:
         diag["trace_error"] = str(e)
 
-    print(f"🔍 [Tx Diagnostics] Hash {clean_hash[:18]}... -> Status: {diag.get('status')} (Code: {diag.get('statusCode')}), Result Code: {diag.get('result_code')}")
+    print(f"[*] [Tx Diagnostics] Hash {clean_hash[:18]}... -> Status: {diag.get('status')} (Code: {diag.get('statusCode')}), Result Code: {diag.get('result_code')}")
     return diag
 
 def _format_crypto_price(price: float) -> str:
