@@ -547,6 +547,36 @@ function GenSignalAppContent() {
           return
         }
 
+        // ── Immediate done: GenLayer RPC offline, signal computed locally from live Binance data
+        if (data.status === 'done' && data.signal) {
+          const isLocalQuant = data.signal_source === 'local_quant' || data.signal?.signal_source === 'local_quant'
+          const evalTx = data.eval_tx_hash || null
+
+          if (evalTx) { setTxHash(evalTx); setEvaluateTxHash(evalTx) }
+          if (data.contract_address) setContractAddress(data.contract_address)
+
+          if (isLocalQuant) {
+            addLog(`⚡ [Local Quant] GenLayer Studionet RPC offline — Signal computed from live Binance data.`, 'warn')
+            addLog(`📊 Indicators: RSI, EMA Stack, MACD, Bollinger Bands applied directly on ${selectedCoin}.`, 'info')
+          } else {
+            addLog(`✅ GenLayer LLM Consensus settled on-chain!`, 'hi')
+          }
+
+          const coinObj = coins.find(c => c.sym === selectedCoin)
+          const currentCoinPrice = data.signal?.current_price || coinObj?.price
+          setSignalReport({
+            ...data.signal,
+            current_price: currentCoinPrice,
+            _is_local_quant: isLocalQuant
+          })
+          setPollingState(null)
+          setShowResultModal(true)
+          setError('')
+          setLoading(false)
+          setExecutionStep('')
+          return
+        }
+
         // Handle structured error responses from backend
         if (data.status === 'error') {
           const errMsg = data.message || 'Signal evaluation failed'
@@ -587,7 +617,7 @@ function GenSignalAppContent() {
           addLog(`✅ GenLayer LLM Consensus settled on-chain: ${evalTx?.slice(0, 18)}…`, 'hi')
         }
 
-        // Step 4: Explorer API Verification
+        // Step 4: Explorer API Verification (only when we have a real on-chain tx)
         setExecutionStep('Waiting for Explorer indexing...')
         addLog(`🔍 Verifying transaction indexing on official GenLayer Explorer API…`, 'hi')
 

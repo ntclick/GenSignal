@@ -162,8 +162,25 @@ On-Chain Proof: ${txHash ? `${explorerUrl}/tx/${txHash}` : 'GenLayer Bradbury Te
                 >
                   {selectedTimeframe.toUpperCase()}
                 </span>
-                {/* Dynamic Source Badge: LLM Consensus vs Binance Fallback */}
-                {proof?.fallback ? (
+                {/* Dynamic Source Badge: LLM Consensus vs Local Quant vs Binance Fallback */}
+                {signalReport._is_local_quant || signalReport.signal_source === 'local_quant' ? (
+                  <span
+                    style={{
+                      fontSize: 11,
+                      fontWeight: 700,
+                      color: '#fb923c',
+                      background: 'rgba(251,146,60,0.12)',
+                      padding: '3px 10px',
+                      borderRadius: 99,
+                      border: '1px solid rgba(251,146,60,0.35)',
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: 6
+                    }}
+                  >
+                    <Zap size={12} /> Local Quant Engine (RPC Offline)
+                  </span>
+                ) : proof?.fallback ? (
                   <span
                     style={{
                       fontSize: 11,

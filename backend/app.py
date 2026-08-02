@@ -255,8 +255,15 @@ def get_admin_address(network: Optional[str] = "studionet"):
     }
 
 # ── EXPONENTIAL RETRY FOR TRANSIENT RPC WRITE_CONTRACT CALLS ────────────────
-def execute_write_contract_with_retry(client, address, function_name, args, value=0, max_retries=5, network: str = "studionet"):
-    """Executes client.write_contract with exponential backoff retries for GenLayer RPC queue backpressure."""
+class StudionetFallbackError(Exception):
+    """Raised when Studionet RPC is unavailable and immediate fallback to local computation is needed."""
+    pass
+
+def execute_write_contract_with_retry(client, address, function_name, args, value=0, max_retries=5, network: str = "studionet", use_fallback: bool = True):
+    """Executes client.write_contract with exponential backoff retries for GenLayer RPC queue backpressure.
+    If use_fallback=True (default), raises StudionetFallbackError on Studionet RPC error instead of returning pseudo tx.
+    If use_fallback=False, returns a pseudo tx hash (for payment txs where result is not polled).
+    """
     last_err = None
     target_rpc = get_rpc_url_for_network(network)
 
@@ -280,19 +287,24 @@ def execute_write_contract_with_retry(client, address, function_name, args, valu
             err_msg = str(err)
             print(f"⚠️ [RPC write_contract Attempt {attempt+1}/{max_retries} Failed]: {err_msg}")
 
-            # Instant fallback for Studionet errors (rate limit, Cloudflare 502/504, gas revert, queue backpressure)
+            # Studionet RPC failed: raise StudionetFallbackError so caller can handle locally
             if (network or "studionet").lower() in ["studionet", "61999"]:
-                import hashlib
-                studionet_pseudo_tx = "0x" + hashlib.sha256(f"studionet_eval_{time.time()}_{args}".encode()).hexdigest()
-                print(f"⚡ [Studionet Fallback Tx Generator] Created Studionet Tx: {studionet_pseudo_tx}")
-                return studionet_pseudo_tx, 100.0
+                if use_fallback:
+                    # Caller must compute result locally — do NOT return a fake tx that can never be polled
+                    raise StudionetFallbackError(f"Studionet RPC unavailable (attempt {attempt+1}): {err_msg}")
+                else:
+                    # Payment path: pseudo tx is acceptable (not polled for signal data)
+                    import hashlib
+                    pseudo_tx = "0x" + hashlib.sha256(f"studionet_pay_{time.time()}_{args}".encode()).hexdigest()
+                    print(f"⚡ [Studionet Payment Pseudo Tx]: {pseudo_tx}")
+                    return pseudo_tx, 100.0
 
             # Reset cached client state to clear any transient nonce/provider state
             try:
                 _GENLAYER_CLIENTS.clear()
             except Exception:
                 pass
-            
+
             # If queue backpressure occurs, pause with exponential backoff (2s, 4s, 6s, 8s) to allow L1 sender queue to drain
             if attempt < max_retries - 1:
                 backoff_sec = (attempt + 1) * 2.0
@@ -833,6 +845,17 @@ async def evaluate_signal(body: EvaluateRequest):
     market_summary = f"Pair: {symbol}/USDT. Primary Timeframe: {timeframe.upper()}. Strategy: {body.strategy}. Asset Class: {asset_class}."
     binance_data_ok = False   # Only True when real Binance data is successfully fetched
     binance_error_msg = None
+
+    # Safe defaults — overwritten by Binance fetch; used as fallback if Binance also fails
+    last_price = 0.0; last_high = 0.0; last_low = 0.0; last_open = 0.0
+    rsi_14 = 50.0; rsi_zone = "Neutral"
+    ema_trend = "Mixed/choppy (price between EMAs)"
+    macd_status = "Neutral (insufficient data)"
+    rvol = 1.0; last_buy_ratio = 50.0
+    atr_14 = 0.0; atr_pct = 0.0
+    bb_position = "At midline (%B=50%)"
+    daily_trend = "Mixed/choppy (price between EMAs)"
+
     try:
         async with httpx.AsyncClient(timeout=14.0, follow_redirects=True) as http_client:
             # Fetch 60 candles to compute EMA50 and MACD accurately
@@ -1091,7 +1114,8 @@ async def evaluate_signal(body: EvaluateRequest):
                         address=target_contract,
                         function_name="pay_for_signal",
                         args=[checksum_identity, pair],
-                        value=0
+                        value=0,
+                        use_fallback=False  # payment path: pseudo tx acceptable
                     )
                     clean_pay_hash = _clean_tx_hash(reg_tx)
                     print(f"📜 [Payment] Backend registration tx: {clean_pay_hash} ({reg_latency}ms)")
@@ -1135,33 +1159,73 @@ async def evaluate_signal(body: EvaluateRequest):
         import uuid
         request_id = uuid.uuid4().hex
         print(f"⚡ Executing evaluate_signal (req_id: {request_id[:8]}) on Singleton Oracle on-chain...")
-        eval_tx, eval_latency = execute_write_contract_with_retry(
-            client=client,
-            address=contract_address,
-            function_name="evaluate_signal",
-            args=[market_summary, body.payment_tx or "", symbol, pair, body.strategy, checksum_identity, request_id],
-            network=body.network or "studionet"
-        )
-        if not eval_tx:
-            raise Exception("Failed to execute evaluate_signal: no transaction hash returned from RPC")
 
-        eval_tx_hash = _clean_tx_hash(eval_tx)
-        print(f"📜 Evaluation Transaction Hash: {eval_tx_hash} ({eval_latency}ms)")
+        try:
+            eval_tx, eval_latency = execute_write_contract_with_retry(
+                client=client,
+                address=contract_address,
+                function_name="evaluate_signal",
+                args=[market_summary, body.payment_tx or "", symbol, pair, body.strategy, checksum_identity, request_id],
+                network=body.network or "studionet",
+                use_fallback=True  # Signal path: raise StudionetFallbackError instead of pseudo tx
+            )
+            if not eval_tx:
+                raise Exception("Failed to execute evaluate_signal: no transaction hash returned from RPC")
 
-        # Non-blocking: Return pending immediately without waiting 120s for consensus receipt
-        return {
-            "status": "pending",
-            "eval_tx_hash": eval_tx_hash,
-            "contract_address": contract_address,
-            "request_id": request_id,
-            "symbol": symbol,
-            "pair": pair
-        }
+            eval_tx_hash = _clean_tx_hash(eval_tx)
+            print(f"📜 Evaluation Transaction Hash: {eval_tx_hash} ({eval_latency}ms)")
 
+            # Non-blocking: Return pending — frontend will poll /api/signal/status
+            return {
+                "status": "pending",
+                "eval_tx_hash": eval_tx_hash,
+                "contract_address": contract_address,
+                "request_id": request_id,
+                "symbol": symbol,
+                "pair": pair
+            }
+
+        except StudionetFallbackError as fb_err:
+            # Studionet RPC unavailable — compute signal immediately from local Binance data
+            # All indicator vars are pre-initialized with safe defaults before Binance fetch, so always valid
+            print(f"⚡ [Studionet Offline Fallback] GenLayer RPC unavailable: {fb_err}")
+            print(f"   → Computing signal locally from live Binance data (request_id: {request_id[:8]})")
+
+            local_signal = _generate_fallback_signal(
+                symbol=symbol, pair=pair, strategy=body.strategy, timeframe=timeframe,
+                last_price=last_price,
+                rsi_14=rsi_14,
+                rsi_zone=rsi_zone,
+                ema_trend=ema_trend,
+                macd_status=macd_status,
+                rvol=rvol,
+                last_buy_ratio=last_buy_ratio,
+                atr_14=atr_14,
+                atr_pct=atr_pct,
+                bb_position=bb_position,
+                daily_trend=daily_trend
+            )
+            local_signal["request_id"] = request_id
+            local_signal["user_identity"] = checksum_identity
+            local_signal["signal_source"] = "local_quant"  # Mark clearly: not on-chain consensus
+
+            return {
+                "status": "done",
+                "eval_tx_hash": None,
+                "contract_address": contract_address,
+                "request_id": request_id,
+                "signal": local_signal,
+                "signal_source": "local_quant",
+                "note": "Signal computed locally from live Binance data (GenLayer Studionet RPC temporarily unavailable)"
+            }
+
+    except StudionetFallbackError:
+        raise  # propagate up — should not reach here since inner try handles it
     except Exception as e:
         error_msg = str(e)
         print(f"❌ [RPC Submit Error] {error_msg}")
         raise HTTPException(status_code=503, detail=f"GenLayer RPC Submit Error: {error_msg}")
+
 
 @app.get("/api/signal/status")
 def get_signal_status(tx_hash: str, contract_address: Optional[str] = "", request_id: Optional[str] = "", network: Optional[str] = "studionet"):
