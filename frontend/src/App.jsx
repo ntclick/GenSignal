@@ -246,12 +246,14 @@ function GenSignalAppContent() {
     }
   }, [activeBackendUrl, pollingState, evaluateTxHash, contractAddress, selectedCoin, coins])
 
-  // Automatic 8-second interval polling
+  // Automatic 4-second interval polling (with immediate initial trigger)
   useEffect(() => {
     if (!pollingState || !pollingState.isPolling) return
+    // Poll immediately on mount
+    pollStatus(pollingState.txHash, pollingState.contractAddress, pollingState.requestId)
     const timer = setInterval(() => {
       pollStatus(pollingState.txHash, pollingState.contractAddress, pollingState.requestId)
-    }, 8000)
+    }, 4000)
     return () => clearInterval(timer)
   }, [pollingState, pollStatus])
 
@@ -617,18 +619,18 @@ function GenSignalAppContent() {
           addLog(`✅ GenLayer LLM Consensus settled on-chain: ${evalTx?.slice(0, 18)}…`, 'hi')
         }
 
-        // Step 4: Explorer API Verification (only when we have a real on-chain tx)
-        setExecutionStep('Waiting for Explorer indexing...')
-        addLog(`🔍 Verifying transaction indexing on official GenLayer Explorer API…`, 'hi')
+        // Step 4: Explorer API Verification (only when a valid on-chain tx is present)
+        if (data.tx_hash) {
+          setExecutionStep('Waiting for Explorer indexing...')
+          addLog(`🔍 Verifying transaction indexing on official GenLayer Explorer API…`, 'hi')
 
-        let isIndexed = false
-        for (let idxAttempt = 1; idxAttempt <= 10; idxAttempt++) {
-          const verification = await TransactionStatusService.verifyTransactionIndexed(data.tx_hash)
-          if (verification.isIndexed) {
-            isIndexed = true
-            break
+          for (let idxAttempt = 1; idxAttempt <= 3; idxAttempt++) {
+            const verification = await TransactionStatusService.verifyTransactionIndexed(data.tx_hash)
+            if (verification.isIndexed) {
+              break
+            }
+            await new Promise(r => setTimeout(r, 1000))
           }
-          await new Promise(r => setTimeout(r, 2000))
         }
 
         const coinObj = coins.find(c => c.sym === selectedCoin)
