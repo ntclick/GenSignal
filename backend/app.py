@@ -26,7 +26,7 @@ for _code in [str(i) for i in range(14, 30)]:
 load_dotenv(dotenv_path=pathlib.Path(__file__).parent.parent / ".env")
 
 PRIVATE_KEY       = os.getenv("GENLAYER_PRIVATE_KEY", "")
-DEFAULT_NETWORK   = os.getenv("GENLAYER_NETWORK", "bradbury").lower()
+DEFAULT_NETWORK   = os.getenv("GENLAYER_NETWORK", "studionet").lower()
 COINGECKO_API_KEY = os.getenv("COINGECKO_API_KEY", "")
 
 CONTRACT_ORACLE   = pathlib.Path(__file__).parent.parent / "contracts" / "signal_oracle.py"
@@ -179,11 +179,11 @@ async def startup_warmup():
     # 2. Warm up GenLayer RPC Client & Wallet Singleton
     try:
         t0 = time.time()
-        client = get_singleton_client("bradbury")
+        client = get_singleton_client("studionet")
         addr = str(client.local_account.address)
         t1 = time.time()
         _STARTUP_METRICS["wallet_init_ms"] = round((t1 - t0) * 1000, 2)
-        print(f"✅ [Startup] GenLayer Bradbury RPC & Wallet connected: {addr} ({_STARTUP_METRICS['wallet_init_ms']}ms)")
+        print(f"✅ [Startup] GenLayer Studionet RPC & Wallet connected: {addr} ({_STARTUP_METRICS['wallet_init_ms']}ms)")
     except Exception as e:
         print(f"⚠️ [Startup Warning] GenLayer RPC connect error: {e}")
 
@@ -206,7 +206,7 @@ async def startup_warmup():
     else:
         try:
             if CONTRACT_TREASURY.exists():
-                client = get_singleton_client("bradbury")
+                client = get_singleton_client("studionet")
                 user_id = _to_checksum(str(client.local_account.address))
                 treasury_code = CONTRACT_TREASURY.read_text(encoding="utf-8")
                 deploy_tx = client.deploy_contract(code=treasury_code, args=[user_id])
@@ -252,7 +252,7 @@ async def shutdown_cleanup():
 # ── EXPLICIT STATUS & HEALTH ENDPOINTS ──────────────────────────────────────
 @app.get("/health")
 @app.get("/api/health")
-def health(network: Optional[str] = "bradbury"):
+def health(network: Optional[str] = "studionet"):
     if not _IS_BACKEND_READY:
         raise HTTPException(status_code=503, detail="Backend warming up. Re-probing dependencies...")
 
@@ -267,7 +267,7 @@ def health(network: Optional[str] = "bradbury"):
         "status": "ok",
         "app": "GenSignal",
         "is_ready": _IS_BACKEND_READY,
-        "default_network": "bradbury",
+        "default_network": "studionet",
         "active_network": network,
         "testnet_wallet_address": testnet_address,
         "real_wallet_balance_gen": f"{real_balance:.4f}",
@@ -277,7 +277,7 @@ def health(network: Optional[str] = "bradbury"):
 
 @app.get("/rpc-status")
 @app.get("/api/rpc-status")
-def rpc_status(network: Optional[str] = "bradbury"):
+def rpc_status(network: Optional[str] = "studionet"):
     if not _IS_BACKEND_READY:
         raise HTTPException(status_code=503, detail="RPC client warming up")
     try:
@@ -295,7 +295,7 @@ def rpc_status(network: Optional[str] = "bradbury"):
 
 @app.get("/wallet-status")
 @app.get("/api/wallet-status")
-def wallet_status(network: Optional[str] = "bradbury"):
+def wallet_status(network: Optional[str] = "studionet"):
     if not _IS_BACKEND_READY:
         raise HTTPException(status_code=503, detail="Wallet warming up")
     try:
@@ -312,7 +312,7 @@ def wallet_status(network: Optional[str] = "bradbury"):
         raise HTTPException(status_code=503, detail=f"Wallet status error: {e}")
 
 @app.get("/api/admin/address")
-def get_admin_address(network: Optional[str] = "bradbury"):
+def get_admin_address(network: Optional[str] = "studionet"):
     """Returns the testnet wallet address derived from GENLAYER_PRIVATE_KEY in .env"""
     if not _IS_BACKEND_READY:
         raise HTTPException(status_code=503, detail="Backend warming up")
@@ -1234,27 +1234,42 @@ async def evaluate_signal(body: EvaluateRequest):
         raise HTTPException(status_code=503, detail=f"GenLayer RPC Submit Error: {error_msg}")
 
 @app.get("/api/signal/status")
-def get_signal_status(tx_hash: str, contract_address: Optional[str] = "", request_id: Optional[str] = "", network: Optional[str] = "bradbury"):
+def get_signal_status(tx_hash: str, contract_address: Optional[str] = "", request_id: Optional[str] = "", network: Optional[str] = "studionet"):
     """
     Poll status endpoint for GenLayer AI-Validator consensus.
     Queries gen_getTransactionStatus (1 raw JSON-RPC call) and reads contract state if settled.
     """
     clean_hash = tx_hash if tx_hash.startswith("0x") else "0x" + tx_hash
-    net_key = network or "bradbury"
+    net_key = (network or "studionet").lower()
     target_rpc = get_rpc_url_for_network(net_key)
 
     # 1. Fetch exact raw status from GenLayer JSON-RPC
     status_resp = None
     try:
+        # Studionet RPC expects params: [clean_hash] while Bradbury accepts [{"txId": clean_hash}]
+        params_payload = [clean_hash] if net_key in ["studionet", "61999", "local"] else [{"txId": clean_hash}]
         r = httpx.post(
             target_rpc,
-            json={"jsonrpc": "2.0", "method": "gen_getTransactionStatus", "params": [{"txId": clean_hash}], "id": 1},
+            json={"jsonrpc": "2.0", "method": "gen_getTransactionStatus", "params": params_payload, "id": 1},
             timeout=10.0
         )
         if r.status_code == 200:
             status_resp = r.json().get("result", {})
+        elif r.status_code in [502, 503, 504]:
+            return {"status": "pending", "note": f"Studionet RPC server temporary HTTP {r.status_code} (Bad Gateway) — retrying..."}
     except Exception as e:
         return {"status": "pending", "error": str(e)}
+
+    # Convert Studionet raw string response (e.g. "PROPOSING", "ACCEPTED") to dict format
+    if isinstance(status_resp, str):
+        st_upper = status_resp.upper()
+        if st_upper in ["ACCEPTED", "FINALIZED", "SUCCESS", "ACCEPTED_ON_L2"]:
+            status_code = 5
+        elif st_upper in ["FAILED", "REJECTED", "CANCELED"]:
+            status_code = 8
+        else:
+            status_code = 1
+        status_resp = {"status": st_upper, "statusCode": status_code}
 
     if not status_resp or not isinstance(status_resp, dict):
         return {"status": "pending", "note": "Transaction status query pending"}
