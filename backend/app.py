@@ -26,7 +26,7 @@ for _code in [str(i) for i in range(14, 30)]:
 load_dotenv(dotenv_path=pathlib.Path(__file__).parent.parent / ".env")
 
 PRIVATE_KEY       = os.getenv("GENLAYER_PRIVATE_KEY", "")
-DEFAULT_NETWORK   = os.getenv("GENLAYER_NETWORK", "studionet").lower()
+DEFAULT_NETWORK   = os.getenv("GENLAYER_NETWORK", "bradbury").lower()
 COINGECKO_API_KEY = os.getenv("COINGECKO_API_KEY", "")
 
 CONTRACT_ORACLE   = pathlib.Path(__file__).parent.parent / "contracts" / "signal_oracle.py"
@@ -179,11 +179,11 @@ async def startup_warmup():
     # 2. Warm up GenLayer RPC Client & Wallet Singleton
     try:
         t0 = time.time()
-        client = get_singleton_client("studionet")
+        client = get_singleton_client("bradbury")
         addr = str(client.local_account.address)
         t1 = time.time()
         _STARTUP_METRICS["wallet_init_ms"] = round((t1 - t0) * 1000, 2)
-        print(f"✅ [Startup] GenLayer Studionet RPC & Wallet connected: {addr} ({_STARTUP_METRICS['wallet_init_ms']}ms)")
+        print(f"✅ [Startup] GenLayer Bradbury RPC & Wallet connected: {addr} ({_STARTUP_METRICS['wallet_init_ms']}ms)")
     except Exception as e:
         print(f"⚠️ [Startup Warning] GenLayer RPC connect error: {e}")
 
@@ -252,7 +252,7 @@ async def shutdown_cleanup():
 # ── EXPLICIT STATUS & HEALTH ENDPOINTS ──────────────────────────────────────
 @app.get("/health")
 @app.get("/api/health")
-def health(network: Optional[str] = "studionet"):
+def health(network: Optional[str] = "bradbury"):
     if not _IS_BACKEND_READY:
         raise HTTPException(status_code=503, detail="Backend warming up. Re-probing dependencies...")
 
@@ -267,7 +267,7 @@ def health(network: Optional[str] = "studionet"):
         "status": "ok",
         "app": "GenSignal",
         "is_ready": _IS_BACKEND_READY,
-        "default_network": "studionet",
+        "default_network": "bradbury",
         "active_network": network,
         "testnet_wallet_address": testnet_address,
         "real_wallet_balance_gen": f"{real_balance:.4f}",
@@ -277,7 +277,7 @@ def health(network: Optional[str] = "studionet"):
 
 @app.get("/rpc-status")
 @app.get("/api/rpc-status")
-def rpc_status(network: Optional[str] = "studionet"):
+def rpc_status(network: Optional[str] = "bradbury"):
     if not _IS_BACKEND_READY:
         raise HTTPException(status_code=503, detail="RPC client warming up")
     try:
@@ -295,7 +295,7 @@ def rpc_status(network: Optional[str] = "studionet"):
 
 @app.get("/wallet-status")
 @app.get("/api/wallet-status")
-def wallet_status(network: Optional[str] = "studionet"):
+def wallet_status(network: Optional[str] = "bradbury"):
     if not _IS_BACKEND_READY:
         raise HTTPException(status_code=503, detail="Wallet warming up")
     try:
@@ -312,7 +312,7 @@ def wallet_status(network: Optional[str] = "studionet"):
         raise HTTPException(status_code=503, detail=f"Wallet status error: {e}")
 
 @app.get("/api/admin/address")
-def get_admin_address(network: Optional[str] = "studionet"):
+def get_admin_address(network: Optional[str] = "bradbury"):
     """Returns the testnet wallet address derived from GENLAYER_PRIVATE_KEY in .env"""
     if not _IS_BACKEND_READY:
         raise HTTPException(status_code=503, detail="Backend warming up")
@@ -585,42 +585,43 @@ def _get_tx_field(tx_obj, *keys):
                 return val
     return None
 
-_DEPLOYED_TREASURY_ADDRESS = None
-_DEPLOYED_ORACLE_ADDRESS = None
+_DEPLOYED_TREASURY_ADDRESSES = {}
+_DEPLOYED_ORACLE_ADDRESSES = {}
 
-def get_active_treasury_address(client=None) -> str:
+def get_active_treasury_address(client=None, network: str = "studionet") -> str:
     """
-    Returns the active SignalTreasury contract address.
-    NEVER deploys a new contract — only reads from in-memory cache or .env.
-    If neither source has a valid address, returns the hardcoded fallback.
+    Returns the active SignalTreasury contract address for the target network.
     """
-    global _DEPLOYED_TREASURY_ADDRESS
-    if _DEPLOYED_TREASURY_ADDRESS and _is_valid_contract_address(_DEPLOYED_TREASURY_ADDRESS):
-        return _DEPLOYED_TREASURY_ADDRESS
+    net_key = (network or "studionet").lower()
+    if net_key in _DEPLOYED_TREASURY_ADDRESSES and _is_valid_contract_address(_DEPLOYED_TREASURY_ADDRESSES[net_key]):
+        return _DEPLOYED_TREASURY_ADDRESSES[net_key]
 
-    # Load from env at runtime (in case it was set after module import)
-    _env_treasury = os.getenv("TREASURY_CONTRACT_ADDRESS", "")
-    if _env_treasury and _is_valid_contract_address(_env_treasury):
-        _DEPLOYED_TREASURY_ADDRESS = _env_treasury
-        return _DEPLOYED_TREASURY_ADDRESS
+    env_var_name = f"TREASURY_CONTRACT_ADDRESS_{net_key.upper()}"
+    env_treasury = os.getenv(env_var_name, os.getenv("TREASURY_CONTRACT_ADDRESS", ""))
+    if env_treasury and _is_valid_contract_address(env_treasury):
+        _DEPLOYED_TREASURY_ADDRESSES[net_key] = env_treasury
+        return env_treasury
 
-    # Final fallback — hardcoded address (never deploy)
     return TREASURY_ADDRESS
 
-def get_active_oracle_address(client=None) -> str:
-    """Singleton Oracle (Model 2): Loads persisted SignalOracle from .env or deploys 1 shared contract."""
-    global _DEPLOYED_ORACLE_ADDRESS
-    if _DEPLOYED_ORACLE_ADDRESS:
-        return _DEPLOYED_ORACLE_ADDRESS
+def get_active_oracle_address(client=None, network: str = "studionet") -> str:
+    """Singleton Oracle (Model 2): Loads persisted SignalOracle from .env or deploys 1 shared contract per network."""
+    net_key = (network or "studionet").lower()
+    if net_key in _DEPLOYED_ORACLE_ADDRESSES and _is_valid_contract_address(_DEPLOYED_ORACLE_ADDRESSES[net_key]):
+        return _DEPLOYED_ORACLE_ADDRESSES[net_key]
 
-    _env_oracle = os.getenv("ORACLE_CONTRACT_ADDRESS", "")
-    if _env_oracle and len(_env_oracle) == 42 and _env_oracle.startswith("0x"):
-        _DEPLOYED_ORACLE_ADDRESS = _env_oracle
-        return _DEPLOYED_ORACLE_ADDRESS
+    env_var_name = f"ORACLE_CONTRACT_ADDRESS_{net_key.upper()}"
+    env_oracle = os.getenv(env_var_name, "")
+    if not env_oracle and net_key == "bradbury":
+        env_oracle = os.getenv("ORACLE_CONTRACT_ADDRESS", "")
+
+    if env_oracle and len(env_oracle) == 42 and env_oracle.startswith("0x"):
+        _DEPLOYED_ORACLE_ADDRESSES[net_key] = env_oracle
+        return env_oracle
 
     if client is None:
         try:
-            client = get_singleton_client("bradbury")
+            client = get_singleton_client(net_key)
         except Exception:
             return ""
 
@@ -630,35 +631,35 @@ def get_active_oracle_address(client=None) -> str:
         deploy_tx = client.deploy_contract(code=oracle_code, args=["BTC", "BTC/USDT", "signals", user_id])
         if deploy_tx:
             deploy_tx_str = str(deploy_tx).strip()
-            print(f"📜 [Singleton Deploy] SignalOracle deploy tx: {deploy_tx_str}")
+            print(f"📜 [Singleton Deploy - {net_key}] SignalOracle deploy tx: {deploy_tx_str}")
             receipt = client.wait_for_transaction_receipt(
                 transaction_hash=deploy_tx_str,
                 status=TransactionStatus.ACCEPTED
             )
             resolved_oracle = _extract_contract_address(receipt)
             if resolved_oracle:
-                _DEPLOYED_ORACLE_ADDRESS = resolved_oracle
-                print(f"🎉 [Singleton Deploy] Deployed persistent Singleton SignalOracle: {_DEPLOYED_ORACLE_ADDRESS}")
+                _DEPLOYED_ORACLE_ADDRESSES[net_key] = resolved_oracle
+                print(f"🎉 [Singleton Deploy - {net_key}] Deployed persistent Singleton SignalOracle: {resolved_oracle}")
                 try:
                     env_text = ENV_FILE.read_text(encoding="utf-8")
-                    if "ORACLE_CONTRACT_ADDRESS" in env_text:
+                    if env_var_name in env_text:
                         import re as _re
                         env_text = _re.sub(
-                            r"ORACLE_CONTRACT_ADDRESS=.*",
-                            f"ORACLE_CONTRACT_ADDRESS={_DEPLOYED_ORACLE_ADDRESS}",
+                            rf"{env_var_name}=.*",
+                            f"{env_var_name}={resolved_oracle}",
                             env_text
                         )
                     else:
-                        env_text += f"\nORACLE_CONTRACT_ADDRESS={_DEPLOYED_ORACLE_ADDRESS}\n"
+                        env_text += f"\n{env_var_name}={resolved_oracle}\n"
                     ENV_FILE.write_text(env_text, encoding="utf-8")
-                    print(f"💾 [Singleton Deploy] Oracle address persisted to .env")
+                    print(f"💾 [Singleton Deploy] Oracle address persisted to .env as {env_var_name}")
                 except Exception as _pe:
                     print(f"⚠️ Could not persist oracle to .env: {_pe}")
                 import time as _time_delay
                 _time_delay.sleep(2.0)
-                return _DEPLOYED_ORACLE_ADDRESS
+                return resolved_oracle
     except Exception as e:
-        print(f"⚠️ [Singleton Oracle Deploy Warning]: {e}")
+        print(f"❌ [Singleton Deploy Error - {net_key}] Failed to deploy SignalOracle: {e}")
 
     return ""
 
@@ -1174,7 +1175,7 @@ async def evaluate_signal(body: EvaluateRequest):
             print(f"⚡ [Payment] Env wallet mode — skipping payment check.")
 
         # 2. Model 2: Reuse Singleton SignalOracle Instance
-        contract_address = get_active_oracle_address(client)
+        contract_address = get_active_oracle_address(client, network=body.network or "studionet")
         deploy_tx_hash = None
         if not contract_address or not _is_valid_contract_address(contract_address):
             # If not yet deployed, deploy dynamically once and persist

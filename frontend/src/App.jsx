@@ -43,7 +43,7 @@ const STUDIONET_NETWORK_PARAMS = {
   blockExplorerUrls: ['https://explorer-studio.genlayer.com']
 }
 
-const ensureNetwork = async (networkId = 'studionet') => {
+const ensureNetwork = async (networkId = 'bradbury') => {
   if (!window.ethereum) return
   const isStudionet = networkId === 'studionet'
   const targetChainId = isStudionet ? STUDIONET_CHAIN_ID_HEX : BRADBURY_CHAIN_ID_HEX
@@ -70,20 +70,20 @@ const ensureNetwork = async (networkId = 'studionet') => {
 
 const NETWORKS = [
   {
-    id: 'studionet',
-    name: 'GenLayer Studionet',
-    chainId: 61999,
-    tag: 'Hosted Studio (No Setup)',
-    rpcUrl: 'https://studio.genlayer.com/api',
-    explorerUrl: 'https://explorer-studio.genlayer.com'
-  },
-  {
     id: 'bradbury',
     name: 'GenLayer Bradbury Testnet',
     chainId: 4221,
     tag: 'Official Testnet',
     rpcUrl: 'https://rpc-bradbury.genlayer.com',
     explorerUrl: 'https://explorer-bradbury.genlayer.com'
+  },
+  {
+    id: 'studionet',
+    name: 'GenLayer Studionet',
+    chainId: 61999,
+    tag: 'Hosted Studio (No Setup)',
+    rpcUrl: 'https://studio.genlayer.com/api',
+    explorerUrl: 'https://explorer-studio.genlayer.com'
   }
 ]
 
@@ -162,7 +162,7 @@ function GenSignalAppContent() {
     return true
   }, [ensureBackendAlive])
   const [activeTab, setActiveTab]             = useState('home') // 'home' | 'dapp'
-  const [activeNetwork, setActiveNetwork]     = useState('studionet')
+  const [activeNetwork, setActiveNetwork]     = useState('bradbury')
   const [coins, setCoins]                     = useState(PRESET_COINS)
   const [searchQuery, setSearchQuery]         = useState('')
   const [selectedCoin, setSelectedCoin]       = useState('BTC')
