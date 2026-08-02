@@ -506,7 +506,7 @@ On-Chain Proof: ${txHash ? `${explorerUrl}/tx/${txHash}` : 'GenLayer Bradbury Te
                     <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
                       Eval Tx:
                       <a
-                        href={`https://explorer-bradbury.genlayer.com/tx/${evaluateTxHash}`}
+                        href={`${explorerUrl}/tx/${evaluateTxHash}`}
                         target="_blank" rel="noopener noreferrer"
                         style={{ color: '#a855f7', fontWeight: 700, textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 3 }}
                       >
@@ -520,7 +520,7 @@ On-Chain Proof: ${txHash ? `${explorerUrl}/tx/${txHash}` : 'GenLayer Bradbury Te
                     <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
                       Contract:
                       <a
-                        href={`https://explorer-bradbury.genlayer.com/address/${contractAddress}`}
+                        href={`${explorerUrl}/address/${contractAddress}`}
                         target="_blank" rel="noopener noreferrer"
                         style={{ color: '#06b6d4', fontWeight: 700, textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 3 }}
                       >
@@ -613,7 +613,7 @@ On-Chain Proof: ${txHash ? `${explorerUrl}/tx/${txHash}` : 'GenLayer Bradbury Te
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8, paddingTop: 4, borderTop: '1px solid rgba(255,255,255,0.04)' }}>
                   <span style={{ color: 'var(--text-muted)' }}>SignalOracle Deployment Tx:</span>
                   <a
-                    href={`https://explorer-bradbury.genlayer.com/tx/${deploymentTxHash}`}
+                    href={`${explorerUrl}/tx/${deploymentTxHash}`}
                     target="_blank"
                     rel="noopener noreferrer"
                     style={{ color: '#3b82f6', textDecoration: 'none', fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: 4 }}
@@ -628,7 +628,7 @@ On-Chain Proof: ${txHash ? `${explorerUrl}/tx/${txHash}` : 'GenLayer Bradbury Te
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8 }}>
                   <span style={{ color: 'var(--text-muted)' }}>Intelligent Contract Address:</span>
                   <a
-                    href={contractAddress.startsWith('0x') && contractAddress.length === 42 ? `https://explorer-bradbury.genlayer.com/address/${contractAddress}` : '#'}
+                    href={contractAddress.startsWith('0x') && contractAddress.length === 42 ? `${explorerUrl}/address/${contractAddress}` : '#'}
                     target="_blank"
                     rel="noopener noreferrer"
                     style={{ color: '#06b6d4', textDecoration: 'none', fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: 4 }}
@@ -643,7 +643,7 @@ On-Chain Proof: ${txHash ? `${explorerUrl}/tx/${txHash}` : 'GenLayer Bradbury Te
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 8, paddingTop: 4, borderTop: '1px solid rgba(255,255,255,0.04)' }}>
                   <span style={{ color: 'var(--text-muted)' }}>Oracle Evaluation (Consensus) Tx:</span>
                   <a
-                    href={`https://explorer-bradbury.genlayer.com/tx/${evaluateTxHash}`}
+                    href={`${explorerUrl}/tx/${evaluateTxHash}`}
                     target="_blank"
                     rel="noopener noreferrer"
                     style={{ color: '#a855f7', textDecoration: 'none', fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: 4 }}
@@ -654,8 +654,8 @@ On-Chain Proof: ${txHash ? `${explorerUrl}/tx/${txHash}` : 'GenLayer Bradbury Te
               )}
 
               <div style={{ display: 'flex', justifyContent: 'space-between', paddingTop: 6, borderTop: '1px solid rgba(255,255,255,0.06)' }}>
-                <span style={{ color: 'var(--text-muted)' }}>Network & Chain ID:</span>
-                <span style={{ color: '#fff', fontWeight: 700 }}>GenLayer Bradbury Testnet (Chain ID 4221)</span>
+                <span style={{ color: 'var(--text-muted)' }}>Network:</span>
+                <span style={{ color: '#fff', fontWeight: 700 }}>{explorerUrl.includes('studio') ? 'GenLayer Studionet (Chain ID 61999)' : 'GenLayer Bradbury Testnet (Chain ID 4221)'}</span>
               </div>
 
               {!proof?.fallback && (

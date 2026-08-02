@@ -230,14 +230,14 @@ function GenSignalAppContent() {
         setPollingState(null)
         setLoading(false)
         setExecutionStep('')
-        setError(`GenLayer Consensus Failed: ${failReason}. Nhấn "Thử lại" bên dưới để gửi lại request.`)
+        setError(`GenLayer Consensus Failed: ${failReason}. Click "Retry" below to resubmit.`)
       } else if (sData.status === 'pending') {
         const stageName = sData.stage || (sData.raw_status_code ? `Code ${sData.raw_status_code}` : 'PENDING')
         addLog(`⏳ GenLayer Consensus Stage: ${stageName}`, 'hi')
         setPollingState(prev => prev ? {
           ...prev,
           stage: stageName,
-          note: sData.note || `Đang chờ GenLayer AI-Validators xử lý (${stageName})...`
+          note: sData.note || `Waiting for GenLayer AI-Validators processing (${stageName})...`
         } : null)
       }
     } catch (err) {
@@ -539,9 +539,9 @@ function GenSignalAppContent() {
             contractAddress: cAddr,
             requestId: reqId,
             stage: 'PENDING',
-            note: 'Đang chờ GenLayer AI-Validators xử lý (có thể mất vài phút)...'
+            note: 'Waiting for GenLayer AI-Validators consensus processing (may take a few minutes)...'
           })
-          setExecutionStep('Đang chờ GenLayer AI-Validators xử lý (có thể mất vài phút)...')
+          setExecutionStep('Waiting for GenLayer AI-Validators consensus processing (may take a few minutes)...')
           setLoading(true)
           return
         }
@@ -1465,7 +1465,7 @@ function GenSignalAppContent() {
                 )}
                 {pollingState.txHash && (
                   <div style={{ color: 'var(--text-secondary)', fontSize: 11, marginBottom: 12 }}>
-                    Tx Hash: <a href={`https://explorer-bradbury.genlayer.com/tx/${pollingState.txHash}`} target="_blank" rel="noopener noreferrer" style={{ color: 'var(--accent-cyan)', textDecoration: 'underline' }}>
+                    Tx Hash: <a href={`${(NETWORKS.find(n => n.id === activeNetwork) || NETWORKS[0]).explorerUrl}/tx/${pollingState.txHash}`} target="_blank" rel="noopener noreferrer" style={{ color: 'var(--accent-cyan)', textDecoration: 'underline' }}>
                       {pollingState.txHash.slice(0, 18)}...
                     </a>
                   </div>
@@ -1479,14 +1479,14 @@ function GenSignalAppContent() {
                       setExecutionStep('')
                     }}
                   >
-                    Đóng (Ẩn Modal)
+                    Dismiss Modal
                   </button>
                   <button
                     className="btn btn-cyan"
                     style={{ padding: '6px 14px', fontSize: 11 }}
                     onClick={() => pollStatus()}
                   >
-                    <RefreshCw size={12} /> Kiểm Tra Ngay
+                    <RefreshCw size={12} /> Check Now
                   </button>
                 </div>
               </div>
@@ -1520,7 +1520,7 @@ function GenSignalAppContent() {
             setShowResultModal(false)
             setSignalReport(null)
           }}
-          explorerUrl={EXPLORER_URL}
+          explorerUrl={(NETWORKS.find(n => n.id === activeNetwork) || NETWORKS[0]).explorerUrl}
         />
       )}
 
