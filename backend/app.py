@@ -7,6 +7,7 @@ Reads REAL on-chain native GEN wallet balance via genlayer_py SDK client (return
 
 import os
 import json
+import asyncio
 import pathlib
 import httpx
 from typing import Optional
@@ -271,12 +272,18 @@ def execute_write_contract_with_retry(client, address, function_name, args, valu
         try:
             active_client = get_client(network, endpoint=target_rpc)
             t0 = time.time()
-            w_tx = active_client.write_contract(
-                address=address,
-                function_name=function_name,
-                args=args,
-                value=value
-            )
+            import concurrent.futures
+            def _do_write():
+                return active_client.write_contract(
+                    address=address,
+                    function_name=function_name,
+                    args=args,
+                    value=value
+                )
+            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+                future = executor.submit(_do_write)
+                w_tx = future.result(timeout=3.0)
+
             t1 = time.time()
             latency_ms = round((t1 - t0) * 1000, 2)
             print(f"⚡ [RPC write_contract Attempt {attempt+1}/{max_retries}] Executed in {latency_ms}ms -> Tx: {w_tx}")
@@ -1076,155 +1083,140 @@ async def evaluate_signal(body: EvaluateRequest):
         print(f"❌ [Binance] Data fetch failed: {e}")
 
     # ── Step 2: GenLayer Oracle Write/Read Lifecycle (Consensus-Settled Only) ──
-    contract_address = None
-    deploy_tx_hash = None
-    eval_tx_hash = None
-    signal_report = None
-
-    try:
-        client = get_singleton_client(network)
-        checksum_identity = _to_checksum(user_identity) if _is_valid_contract_address(user_identity) else ""
-        pair = f"{symbol}/USDT"
-
-        # ─── Payment Verification (Simplified x402 Flow) ───────────────────────
-        # x402 Protocol: Payment is verified by the existence of a valid on-chain tx hash.
-        # We do NOT poll is_query_paid() to avoid: race conditions, indexing delays,
-        # and unnecessary additional write_contract calls (redundant transactions).
-        #
-        # Decision tree:
-        #   A) payment_tx is a valid 66-char 0x hash → trust it, proceed directly
-        #   B) payment_tx is missing/invalid AND user identity valid → call backend pay_for_signal()
-        #      to perform a single backend-wallet payment registration (1 write tx)
-        #   C) no identity → proceed without payment check (env wallet mode)
-
-        clean_pay_hash = _clean_tx_hash(payment_tx)
-        is_payment_verified = bool(clean_pay_hash and len(clean_pay_hash) >= 60)
-
-        if is_payment_verified:
-            # Path A: MetaMask or external wallet already paid — trust the tx hash
-            print(f"✅ [Payment] x402 tx hash verified: {clean_pay_hash[:18]}… — proceeding to oracle.")
-        elif checksum_identity:
-            # Path B: No payment tx provided — backend wallet registers payment (1 write tx)
-            print(f"⚡ [Payment] No payment tx hash. Backend wallet registering payment for {checksum_identity} / {pair}...")
-            target_contract = get_active_treasury_address(client)
-            if _is_valid_contract_address(target_contract):
-                try:
-                    reg_tx, reg_latency = execute_write_contract_with_retry(
-                        client=client,
-                        address=target_contract,
-                        function_name="pay_for_signal",
-                        args=[checksum_identity, pair],
-                        value=0,
-                        use_fallback=False  # payment path: pseudo tx acceptable
-                    )
-                    clean_pay_hash = _clean_tx_hash(reg_tx)
-                    print(f"📜 [Payment] Backend registration tx: {clean_pay_hash} ({reg_latency}ms)")
-                    # Non-blocking: don't wait for receipt to keep latency low
-                except Exception as pay_err:
-                    print(f"⚠️ [Payment] Backend registration failed (non-fatal): {pay_err}")
-            else:
-                print(f"⚠️ [Payment] Treasury contract not configured — skipping registration.")
-        else:
-            # Path C: Env wallet mode — no identity, no payment check
-            print(f"⚡ [Payment] Env wallet mode — skipping payment check.")
-
-        # 2. Model 2: Reuse Singleton SignalOracle Instance
-        contract_address = get_active_oracle_address(client, network=body.network or "studionet")
+    def _do_oracle_step():
+        contract_address = None
         deploy_tx_hash = None
-        if not contract_address or not _is_valid_contract_address(contract_address):
-            # If not yet deployed, deploy dynamically once and persist
-            print(f"🚀 Deploying Singleton SignalOracle once for {symbol}...")
-            code = CONTRACT_ORACLE.read_text(encoding="utf-8")
-            deploy_tx = client.deploy_contract(
-                code=code,
-                args=[symbol, pair, body.strategy, checksum_identity]
-            )
-            if deploy_tx:
-                deploy_tx_hash = _clean_tx_hash(deploy_tx)
-                deploy_receipt = client.wait_for_transaction_receipt(
-                    transaction_hash=deploy_tx_hash,
-                    status=TransactionStatus.ACCEPTED
-                )
-                contract_address = _extract_contract_address(deploy_receipt)
-                if contract_address:
-                    global _DEPLOYED_ORACLE_ADDRESS
-                    _DEPLOYED_ORACLE_ADDRESS = contract_address
-
-        if not contract_address or not _is_valid_contract_address(contract_address):
-            raise Exception("Failed to resolve Singleton SignalOracle contract address")
-
-        print(f"✅ Using Singleton SignalOracle Contract (Model 2): {contract_address}")
-
-        # 3. Execute evaluate_signal on Singleton Oracle with Exponential Backoff Retries
-        import uuid
-        request_id = uuid.uuid4().hex
-        print(f"⚡ Executing evaluate_signal (req_id: {request_id[:8]}) on Singleton Oracle on-chain...")
+        eval_tx_hash = None
+        signal_report = None
 
         try:
-            eval_tx, eval_latency = execute_write_contract_with_retry(
-                client=client,
-                address=contract_address,
-                function_name="evaluate_signal",
-                args=[market_summary, body.payment_tx or "", symbol, pair, body.strategy, checksum_identity, request_id],
-                network=body.network or "studionet",
-                use_fallback=True  # Signal path: raise StudionetFallbackError instead of pseudo tx
-            )
-            if not eval_tx:
-                raise Exception("Failed to execute evaluate_signal: no transaction hash returned from RPC")
+            client = get_singleton_client(network)
+            checksum_identity = _to_checksum(user_identity) if _is_valid_contract_address(user_identity) else ""
+            pair = f"{symbol}/USDT"
 
-            eval_tx_hash = _clean_tx_hash(eval_tx)
-            print(f"📜 Evaluation Transaction Hash: {eval_tx_hash} ({eval_latency}ms)")
+            clean_pay_hash = _clean_tx_hash(payment_tx)
+            is_payment_verified = bool(clean_pay_hash and len(clean_pay_hash) >= 60)
 
-            # Non-blocking: Return pending — frontend will poll /api/signal/status
-            return {
-                "status": "pending",
-                "eval_tx_hash": eval_tx_hash,
-                "contract_address": contract_address,
-                "request_id": request_id,
-                "symbol": symbol,
-                "pair": pair
-            }
+            if is_payment_verified:
+                print(f"✅ [Payment] x402 tx hash verified: {clean_pay_hash[:18]}… — proceeding to oracle.")
+            elif checksum_identity:
+                print(f"⚡ [Payment] No payment tx hash. Backend wallet registering payment for {checksum_identity} / {pair}...")
+                target_contract = get_active_treasury_address(client)
+                if _is_valid_contract_address(target_contract):
+                    try:
+                        reg_tx, reg_latency = execute_write_contract_with_retry(
+                            client=client,
+                            address=target_contract,
+                            function_name="pay_for_signal",
+                            args=[checksum_identity, pair],
+                            value=0,
+                            use_fallback=False  # payment path: pseudo tx acceptable
+                        )
+                        clean_pay_hash = _clean_tx_hash(reg_tx)
+                        print(f"📜 [Payment] Backend registration tx: {clean_pay_hash} ({reg_latency}ms)")
+                    except Exception as pay_err:
+                        print(f"⚠️ [Payment] Backend registration failed (non-fatal): {pay_err}")
+                else:
+                    print(f"⚠️ [Payment] Treasury contract not configured — skipping registration.")
+            else:
+                print(f"⚡ [Payment] Env wallet mode — skipping payment check.")
 
-        except StudionetFallbackError as fb_err:
-            # Studionet RPC unavailable — compute signal immediately from local Binance data
-            # All indicator vars are pre-initialized with safe defaults before Binance fetch, so always valid
-            print(f"⚡ [Studionet Offline Fallback] GenLayer RPC unavailable: {fb_err}")
-            print(f"   → Computing signal locally from live Binance data (request_id: {request_id[:8]})")
+            # 2. Model 2: Reuse Singleton SignalOracle Instance
+            contract_address = get_active_oracle_address(client, network=body.network or "studionet")
+            if not contract_address or not _is_valid_contract_address(contract_address):
+                print(f"🚀 Deploying Singleton SignalOracle once for {symbol}...")
+                code = CONTRACT_ORACLE.read_text(encoding="utf-8")
+                deploy_tx = client.deploy_contract(
+                    code=code,
+                    args=[symbol, pair, body.strategy, checksum_identity]
+                )
+                if deploy_tx:
+                    deploy_tx_hash = _clean_tx_hash(deploy_tx)
+                    deploy_receipt = client.wait_for_transaction_receipt(
+                        transaction_hash=deploy_tx_hash,
+                        status=TransactionStatus.ACCEPTED
+                    )
+                    contract_address = _extract_contract_address(deploy_receipt)
+                    if contract_address:
+                        global _DEPLOYED_ORACLE_ADDRESS
+                        _DEPLOYED_ORACLE_ADDRESS = contract_address
 
-            local_signal = _generate_fallback_signal(
-                symbol=symbol, pair=pair, strategy=body.strategy, timeframe=timeframe,
-                last_price=last_price,
-                rsi_14=rsi_14,
-                rsi_zone=rsi_zone,
-                ema_trend=ema_trend,
-                macd_status=macd_status,
-                rvol=rvol,
-                last_buy_ratio=last_buy_ratio,
-                atr_14=atr_14,
-                atr_pct=atr_pct,
-                bb_position=bb_position,
-                daily_trend=daily_trend
-            )
-            local_signal["request_id"] = request_id
-            local_signal["user_identity"] = checksum_identity
-            local_signal["signal_source"] = "local_quant"  # Mark clearly: not on-chain consensus
+            if not contract_address or not _is_valid_contract_address(contract_address):
+                raise Exception("Failed to resolve Singleton SignalOracle contract address")
 
-            return {
-                "status": "done",
-                "eval_tx_hash": None,
-                "contract_address": contract_address,
-                "request_id": request_id,
-                "signal": local_signal,
-                "signal_source": "local_quant",
-                "note": "Signal computed locally from live Binance data (GenLayer Studionet RPC temporarily unavailable)"
-            }
+            print(f"✅ Using Singleton SignalOracle Contract (Model 2): {contract_address}")
 
-    except StudionetFallbackError:
-        raise  # propagate up — should not reach here since inner try handles it
-    except Exception as e:
-        error_msg = str(e)
-        print(f"❌ [RPC Submit Error] {error_msg}")
-        raise HTTPException(status_code=503, detail=f"GenLayer RPC Submit Error: {error_msg}")
+            # 3. Execute evaluate_signal on Singleton Oracle with Exponential Backoff Retries
+            import uuid
+            request_id = uuid.uuid4().hex
+            print(f"⚡ Executing evaluate_signal (req_id: {request_id[:8]}) on Singleton Oracle on-chain...")
+
+            try:
+                eval_tx, eval_latency = execute_write_contract_with_retry(
+                    client=client,
+                    address=contract_address,
+                    function_name="evaluate_signal",
+                    args=[market_summary, body.payment_tx or "", symbol, pair, body.strategy, checksum_identity, request_id],
+                    network=body.network or "studionet",
+                    use_fallback=True  # Signal path: raise StudionetFallbackError instead of pseudo tx
+                )
+                if not eval_tx:
+                    raise Exception("Failed to execute evaluate_signal: no transaction hash returned from RPC")
+
+                eval_tx_hash = _clean_tx_hash(eval_tx)
+                print(f"📜 Evaluation Transaction Hash: {eval_tx_hash} ({eval_latency}ms)")
+
+                return {
+                    "status": "pending",
+                    "eval_tx_hash": eval_tx_hash,
+                    "contract_address": contract_address,
+                    "request_id": request_id,
+                    "symbol": symbol,
+                    "pair": pair
+                }
+
+            except StudionetFallbackError as fb_err:
+                print(f"⚡ [Studionet Offline Fallback] GenLayer RPC unavailable: {fb_err}")
+                print(f"   → Computing signal locally from live Binance data (request_id: {request_id[:8]})")
+
+                local_signal = _generate_fallback_signal(
+                    symbol=symbol, pair=pair, strategy=body.strategy, timeframe=timeframe,
+                    last_price=last_price,
+                    rsi_14=rsi_14,
+                    rsi_zone=rsi_zone,
+                    ema_trend=ema_trend,
+                    macd_status=macd_status,
+                    rvol=rvol,
+                    last_buy_ratio=last_buy_ratio,
+                    atr_14=atr_14,
+                    atr_pct=atr_pct,
+                    bb_position=bb_position,
+                    daily_trend=daily_trend
+                )
+                local_signal["request_id"] = request_id
+                local_signal["user_identity"] = checksum_identity
+                local_signal["signal_source"] = "local_quant"
+
+                return {
+                    "status": "done",
+                    "eval_tx_hash": None,
+                    "contract_address": contract_address,
+                    "request_id": request_id,
+                    "signal": local_signal,
+                    "signal_source": "local_quant",
+                    "note": "Signal computed locally from live Binance data (GenLayer Studionet RPC temporarily unavailable)"
+                }
+
+        except StudionetFallbackError:
+            raise
+        except Exception as e:
+            error_msg = str(e)
+            print(f"❌ [RPC Submit Error] {error_msg}")
+            raise HTTPException(status_code=503, detail=f"GenLayer RPC Submit Error: {error_msg}")
+
+    # Run blocking GenLayer SDK calls on a worker thread to keep FastAPI event loop 100% responsive
+    return await asyncio.to_thread(_do_oracle_step)
+
 
 
 @app.get("/api/signal/status")
