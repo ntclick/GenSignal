@@ -11,7 +11,8 @@ import { TransactionStatusService } from './services/TransactionStatusService'
 const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || 'http://localhost:8001'
 const LOCAL_STORAGE_WALLET_KEY = 'gensignal_connected_wallet'
 const PRICE_REFRESH_INTERVAL_SEC = 600
-const EXPLORER_URL = 'https://explorer-bradbury.genlayer.com'
+// EXPLORER_URL is dynamic based on activeNetwork — do NOT use this hardcoded constant
+// Use: (NETWORKS.find(n => n.id === activeNetwork) || NETWORKS[0]).explorerUrl
 const BRADBURY_CHAIN_ID_HEX = '0x107d' // 4221 in Decimal
 
 // Treasury: GEN fee collected here on-chain from user's wallet directly
@@ -975,8 +976,8 @@ function GenSignalAppContent() {
             </h2>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: 16 }}>
               <div className="card" style={{ textAlign: 'center', padding: 20, marginBottom: 0 }}>
-                <div style={{ fontWeight: 800, fontSize: 16, color: '#fff', marginBottom: 4 }}>GenLayer Bradbury</div>
-                <div style={{ fontSize: 12, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>Chain ID: 4221</div>
+                <div style={{ fontWeight: 800, fontSize: 16, color: '#fff', marginBottom: 4 }}>GenLayer Studionet</div>
+                <div style={{ fontSize: 12, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>Chain ID: 61999</div>
               </div>
               <div className="card" style={{ textAlign: 'center', padding: 20, marginBottom: 0 }}>
                 <div style={{ fontWeight: 800, fontSize: 16, color: 'var(--accent-purple)', marginBottom: 4 }}>Groq LLaMA 3.3 70B</div>
@@ -1125,7 +1126,7 @@ function GenSignalAppContent() {
 
               <div style={{ display: 'flex', gap: 20, fontSize: 13, color: 'var(--text-secondary)' }}>
                 <button className="nav-tab active" onClick={() => setActiveTab('dapp')}>Launch dApp</button>
-                <a href={EXPLORER_URL} target="_blank" rel="noreferrer" className="nav-link">Block Explorer</a>
+                <a href={(NETWORKS.find(n => n.id === activeNetwork) || NETWORKS[0]).explorerUrl} target="_blank" rel="noreferrer" className="nav-link">Block Explorer</a>
                 <a href="https://github.com/ntclick/GenSignal" target="_blank" rel="noreferrer" className="nav-link">GitHub</a>
               </div>
             </div>
@@ -1600,7 +1601,7 @@ function GenSignalAppContent() {
               {txHash && (
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 6 }}>
                   <a
-                    href={`${EXPLORER_URL}/tx/${txHash}`}
+                    href={`${(NETWORKS.find(n => n.id === activeNetwork) || NETWORKS[0]).explorerUrl}/tx/${txHash}`}
                     target="_blank"
                     rel="noopener noreferrer"
                     style={{ color: 'var(--accent-cyan)', textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 6, fontWeight: 700 }}
