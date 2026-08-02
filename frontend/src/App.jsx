@@ -29,41 +29,62 @@ const FEE_WEI_BY_STRATEGY = {
   vwap:      '80000000000000000',
 }
 
-const BRADBURY_NETWORK_PARAMS = {
-  chainId: BRADBURY_CHAIN_ID_HEX,
-  chainName: 'GenLayer Bradbury Testnet',
+const STUDIONET_CHAIN_ID_HEX = '0xf22f' // 61999 in Decimal
+
+const STUDIONET_NETWORK_PARAMS = {
+  chainId: STUDIONET_CHAIN_ID_HEX,
+  chainName: 'GenLayer Studionet',
   nativeCurrency: {
     name: 'GEN',
     symbol: 'GEN',
     decimals: 18
   },
-  rpcUrls: ['https://rpc-bradbury.genlayer.com', 'https://rpc.testnet-chain.genlayer.com'],
-  blockExplorerUrls: ['https://explorer-bradbury.genlayer.com']
+  rpcUrls: ['https://studio.genlayer.com/api'],
+  blockExplorerUrls: ['https://explorer-studio.genlayer.com']
 }
 
-const ensureBradburyNetwork = async () => {
+const ensureNetwork = async (networkId = 'bradbury') => {
   if (!window.ethereum) return
+  const isStudionet = networkId === 'studionet'
+  const targetChainId = isStudionet ? STUDIONET_CHAIN_ID_HEX : BRADBURY_CHAIN_ID_HEX
+  const targetParams = isStudionet ? STUDIONET_NETWORK_PARAMS : BRADBURY_NETWORK_PARAMS
+
   try {
     await window.ethereum.request({
       method: 'wallet_switchEthereumChain',
-      params: [{ chainId: BRADBURY_CHAIN_ID_HEX }]
+      params: [{ chainId: targetChainId }]
     })
   } catch (switchError) {
     if (switchError.code === 4902 || switchError?.data?.originalError?.code === 4902) {
       try {
         await window.ethereum.request({
           method: 'wallet_addEthereumChain',
-          params: [BRADBURY_NETWORK_PARAMS]
+          params: [targetParams]
         })
       } catch (addError) {
-        console.error('Failed to add Bradbury network to MetaMask:', addError)
+        console.error(`Failed to add ${networkId} network to MetaMask:`, addError)
       }
     }
   }
 }
 
 const NETWORKS = [
-  { id: 'bradbury', name: 'GenLayer Bradbury Testnet', chainId: 4221, tag: 'Official Testnet' }
+  {
+    id: 'bradbury',
+    name: 'GenLayer Bradbury Testnet',
+    chainId: 4221,
+    tag: 'Official Testnet',
+    rpcUrl: 'https://rpc-bradbury.genlayer.com',
+    explorerUrl: 'https://explorer-bradbury.genlayer.com'
+  },
+  {
+    id: 'studionet',
+    name: 'GenLayer Studionet',
+    chainId: 61999,
+    tag: 'Hosted Studio (No Setup)',
+    rpcUrl: 'https://studio.genlayer.com/api',
+    explorerUrl: 'https://explorer-studio.genlayer.com'
+  }
 ]
 
 const STRATEGIES = [
@@ -185,7 +206,7 @@ function GenSignalAppContent() {
 
     try {
       addLog(`🔍 Polling status for tx ${targetTx.slice(0, 14)}...`, 'hi')
-      const pUrl = `${activeBackendUrl}/api/signal/status?tx_hash=${encodeURIComponent(targetTx)}&contract_address=${encodeURIComponent(targetContract || '')}&request_id=${encodeURIComponent(targetReqId || '')}`
+      const pUrl = `${activeBackendUrl}/api/signal/status?tx_hash=${encodeURIComponent(targetTx)}&contract_address=${encodeURIComponent(targetContract || '')}&request_id=${encodeURIComponent(targetReqId || '')}&network=${encodeURIComponent(activeNetwork)}`
       const res = await fetch(pUrl)
       if (!res.ok) return
       const sData = await res.json()
@@ -249,7 +270,7 @@ function GenSignalAppContent() {
   useEffect(() => {
     const cachedWallet = localStorage.getItem(LOCAL_STORAGE_WALLET_KEY)
     if (cachedWallet && window.ethereum) {
-      ensureBradburyNetwork()
+      ensureNetwork(activeNetwork)
       window.ethereum.request({ method: 'eth_accounts' })
         .then(accounts => {
           if (accounts && accounts.length > 0) {
@@ -375,7 +396,7 @@ function GenSignalAppContent() {
       return
     }
     try {
-      await ensureBradburyNetwork()
+      await ensureNetwork(activeNetwork)
       const accounts = await window.ethereum.request({ method: 'eth_requestAccounts' })
       if (accounts.length > 0) {
         const addr = accounts[0]
@@ -700,9 +721,34 @@ function GenSignalAppContent() {
 
           {/* Right Section */}
           <div className="header-right">
-            {/* Compact Neutral Network Chip */}
-            <div className="network-chip">
-              <div className="dot-green" /> Bradbury Testnet
+            {/* Interactive Network Selector Dropdown */}
+            <div className="network-select-wrapper" style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
+              <select
+                className="network-chip"
+                value={activeNetwork}
+                onChange={async (e) => {
+                  const newNet = e.target.value
+                  setActiveNetwork(newNet)
+                  await ensureNetwork(newNet)
+                }}
+                style={{
+                  background: 'rgba(255,255,255,0.05)',
+                  border: '1px solid var(--border-glass)',
+                  color: '#fff',
+                  padding: '6px 12px',
+                  borderRadius: 20,
+                  fontSize: 12,
+                  fontFamily: 'var(--font-mono)',
+                  cursor: 'pointer',
+                  outline: 'none'
+                }}
+              >
+                {NETWORKS.map(net => (
+                  <option key={net.id} value={net.id} style={{ background: '#0d1117', color: '#fff' }}>
+                    🟢 {net.name} ({net.tag})
+                  </option>
+                ))}
+              </select>
             </div>
 
             {/* Compact Wallet Chip */}

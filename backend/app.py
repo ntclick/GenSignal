@@ -34,6 +34,7 @@ CONTRACT_TREASURY = pathlib.Path(__file__).parent.parent / "contracts" / "signal
 ENV_FILE          = pathlib.Path(__file__).parent.parent / ".env"
 
 BRADBURY_RPC_URL    = "https://rpc-bradbury.genlayer.com"
+STUDIONET_RPC_URL   = "https://studio.genlayer.com/api"
 NATIVE_TOKEN_SYMBOL = "GEN"
 X402_FEE_GEN        = "0.05"
 # Fallback legacy address — only used if Treasury contract has never been deployed
@@ -72,13 +73,15 @@ COINS_MAP = [
 PRIMARY_RPC_URL = "https://rpc-bradbury.genlayer.com"
 SECONDARY_RPC_URL = "https://rpc-bradbury.genlayer.com"
 
-# Ensure testnet_bradbury chain definition uses the working RPC endpoint
+def get_rpc_url_for_network(network: str = "") -> str:
+    if str(network).lower() in ["studionet", "61999", "local"]:
+        return STUDIONET_RPC_URL
+    return PRIMARY_RPC_URL
+
+# Ensure testnet_bradbury and studionet chain definitions use the appropriate RPC endpoints
 try:
-    testnet_bradbury.rpc_urls = {
-        'default': {
-            'http': [PRIMARY_RPC_URL]
-        }
-    }
+    testnet_bradbury.rpc_urls = {'default': {'http': [PRIMARY_RPC_URL]}}
+    studionet.rpc_urls = {'default': {'http': [STUDIONET_RPC_URL]}}
 except Exception:
     pass
 
@@ -90,10 +93,11 @@ def get_client(network: str = "", endpoint: str = None):
     target = network.lower() if network else DEFAULT_NETWORK
     if target in ["studionet", "61999", "local"]:
         chain = studionet
+        chosen_endpoint = endpoint or STUDIONET_RPC_URL
     else:
         chain = testnet_bradbury
+        chosen_endpoint = endpoint or PRIMARY_RPC_URL
 
-    chosen_endpoint = endpoint or PRIMARY_RPC_URL
     client = create_client(chain=chain, endpoint=chosen_endpoint, account=account)
 
     # Patch client.provider.make_request to unwrap dict result for gen_call RPC response
@@ -330,13 +334,14 @@ def get_admin_address(network: Optional[str] = "bradbury"):
         raise HTTPException(status_code=500, detail=f"Failed to fetch admin address: {e}")
 
 # ── EXPONENTIAL RETRY FOR TRANSIENT RPC WRITE_CONTRACT CALLS ────────────────
-def execute_write_contract_with_retry(client, address, function_name, args, value=0, max_retries=5):
+def execute_write_contract_with_retry(client, address, function_name, args, value=0, max_retries=5, network: str = "bradbury"):
     """Executes client.write_contract with exponential backoff retries for GenLayer RPC queue backpressure."""
     last_err = None
+    target_rpc = get_rpc_url_for_network(network)
 
     for attempt in range(max_retries):
         try:
-            active_client = get_client("bradbury", endpoint=PRIMARY_RPC_URL)
+            active_client = get_client(network, endpoint=target_rpc)
             t0 = time.time()
             w_tx = active_client.write_contract(
                 address=address,
@@ -1228,18 +1233,20 @@ async def evaluate_signal(body: EvaluateRequest):
         raise HTTPException(status_code=503, detail=f"GenLayer RPC Submit Error: {error_msg}")
 
 @app.get("/api/signal/status")
-def get_signal_status(tx_hash: str, contract_address: Optional[str] = "", request_id: Optional[str] = ""):
+def get_signal_status(tx_hash: str, contract_address: Optional[str] = "", request_id: Optional[str] = "", network: Optional[str] = "bradbury"):
     """
     Poll status endpoint for GenLayer AI-Validator consensus.
     Queries gen_getTransactionStatus (1 raw JSON-RPC call) and reads contract state if settled.
     """
     clean_hash = tx_hash if tx_hash.startswith("0x") else "0x" + tx_hash
+    net_key = network or "bradbury"
+    target_rpc = get_rpc_url_for_network(net_key)
 
     # 1. Fetch exact raw status from GenLayer JSON-RPC
     status_resp = None
     try:
         r = httpx.post(
-            PRIMARY_RPC_URL,
+            target_rpc,
             json={"jsonrpc": "2.0", "method": "gen_getTransactionStatus", "params": [{"txId": clean_hash}], "id": 1},
             timeout=10.0
         )
@@ -1275,7 +1282,7 @@ def get_signal_status(tx_hash: str, contract_address: Optional[str] = "", reques
 
     # 4. Check if transaction code is unknown (>13)
     if status_code >= 14:
-        print(f"⚠️ [Unknown Status Code] Encountered Bradbury status code {status_code} for tx {clean_hash}")
+        print(f"⚠️ [Unknown Status Code] Encountered status code {status_code} on {net_key} for tx {clean_hash}")
         return {
             "status": "pending",
             "raw_status_code": status_code,
@@ -1288,7 +1295,7 @@ def get_signal_status(tx_hash: str, contract_address: Optional[str] = "", reques
         # Query trace to check if contract execution reverted (FINISHED_WITH_ERROR / result_code=1)
         try:
             r_trace = httpx.post(
-                PRIMARY_RPC_URL,
+                target_rpc,
                 json={"jsonrpc": "2.0", "method": "gen_dbg_traceTransaction", "params": [{"txID": clean_hash, "round": 0}], "id": 1},
                 timeout=10.0
             )
@@ -1304,12 +1311,12 @@ def get_signal_status(tx_hash: str, contract_address: Optional[str] = "", reques
             pass
 
         # Read contract state
-        target_contract = contract_address or get_active_oracle_address()
+        target_contract = contract_address or get_active_oracle_address(client=get_singleton_client(net_key))
         if not target_contract or not _is_valid_contract_address(target_contract):
             return {"status": "pending", "note": "Contract address not resolved"}
 
         try:
-            client = get_singleton_client("bradbury")
+            client = get_singleton_client(net_key)
             signal_report = client.read_contract(
                 address=target_contract,
                 function_name="get_signal",
