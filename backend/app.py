@@ -26,7 +26,7 @@ for _code in [str(i) for i in range(14, 30)]:
 load_dotenv(dotenv_path=pathlib.Path(__file__).parent.parent / ".env")
 
 PRIVATE_KEY       = os.getenv("GENLAYER_PRIVATE_KEY", "")
-DEFAULT_NETWORK   = os.getenv("GENLAYER_NETWORK", "bradbury").lower()
+DEFAULT_NETWORK   = os.getenv("GENLAYER_NETWORK", "studionet").lower()
 COINGECKO_API_KEY = os.getenv("COINGECKO_API_KEY", "")
 
 CONTRACT_ORACLE   = pathlib.Path(__file__).parent.parent / "contracts" / "signal_oracle.py"
@@ -179,11 +179,11 @@ async def startup_warmup():
     # 2. Warm up GenLayer RPC Client & Wallet Singleton
     try:
         t0 = time.time()
-        client = get_singleton_client("bradbury")
+        client = get_singleton_client("studionet")
         addr = str(client.local_account.address)
         t1 = time.time()
         _STARTUP_METRICS["wallet_init_ms"] = round((t1 - t0) * 1000, 2)
-        print(f"✅ [Startup] GenLayer Bradbury RPC & Wallet connected: {addr} ({_STARTUP_METRICS['wallet_init_ms']}ms)")
+        print(f"✅ [Startup] GenLayer Studionet RPC & Wallet connected: {addr} ({_STARTUP_METRICS['wallet_init_ms']}ms)")
     except Exception as e:
         print(f"⚠️ [Startup Warning] GenLayer RPC connect error: {e}")
 
@@ -252,7 +252,7 @@ async def shutdown_cleanup():
 # ── EXPLICIT STATUS & HEALTH ENDPOINTS ──────────────────────────────────────
 @app.get("/health")
 @app.get("/api/health")
-def health(network: Optional[str] = "bradbury"):
+def health(network: Optional[str] = "studionet"):
     if not _IS_BACKEND_READY:
         raise HTTPException(status_code=503, detail="Backend warming up. Re-probing dependencies...")
 
@@ -267,7 +267,7 @@ def health(network: Optional[str] = "bradbury"):
         "status": "ok",
         "app": "GenSignal",
         "is_ready": _IS_BACKEND_READY,
-        "default_network": "bradbury",
+        "default_network": "studionet",
         "active_network": network,
         "testnet_wallet_address": testnet_address,
         "real_wallet_balance_gen": f"{real_balance:.4f}",
@@ -277,7 +277,7 @@ def health(network: Optional[str] = "bradbury"):
 
 @app.get("/rpc-status")
 @app.get("/api/rpc-status")
-def rpc_status(network: Optional[str] = "bradbury"):
+def rpc_status(network: Optional[str] = "studionet"):
     if not _IS_BACKEND_READY:
         raise HTTPException(status_code=503, detail="RPC client warming up")
     try:
@@ -285,7 +285,7 @@ def rpc_status(network: Optional[str] = "bradbury"):
         addr = str(client.local_account.address)
         return {
             "status": "connected",
-            "rpc_url": BRADBURY_RPC_URL,
+            "rpc_url": get_rpc_url_for_network(network),
             "network": network,
             "wallet_address": addr,
             "latency_ms": _STARTUP_METRICS["rpc_connect_ms"]
@@ -295,7 +295,7 @@ def rpc_status(network: Optional[str] = "bradbury"):
 
 @app.get("/wallet-status")
 @app.get("/api/wallet-status")
-def wallet_status(network: Optional[str] = "bradbury"):
+def wallet_status(network: Optional[str] = "studionet"):
     if not _IS_BACKEND_READY:
         raise HTTPException(status_code=503, detail="Wallet warming up")
     try:
@@ -312,7 +312,7 @@ def wallet_status(network: Optional[str] = "bradbury"):
         raise HTTPException(status_code=503, detail=f"Wallet status error: {e}")
 
 @app.get("/api/admin/address")
-def get_admin_address(network: Optional[str] = "bradbury"):
+def get_admin_address(network: Optional[str] = "studionet"):
     """Returns the testnet wallet address derived from GENLAYER_PRIVATE_KEY in .env"""
     if not _IS_BACKEND_READY:
         raise HTTPException(status_code=503, detail="Backend warming up")
