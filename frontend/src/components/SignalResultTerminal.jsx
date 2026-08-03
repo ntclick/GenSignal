@@ -17,7 +17,8 @@ export const SignalResultTerminal = ({
   selectedTimeframe = '4h',
   onClose,
   onExecuteAnother,
-  explorerUrl = 'https://zksync-os-testnet-genlayer.explorer.zksync.dev'
+  onRetry,
+  explorerUrl = 'https://explorer-studio.genlayer.com'
 }) => {
   const [showReasoning, setShowReasoning] = useState(false)
   const [copied, setCopied]               = useState(false)
@@ -475,10 +476,37 @@ On-Chain Proof: ${txHash ? `${explorerUrl}/tx/${txHash}` : 'GenLayer Bradbury Te
                     </div>
                   </div>
                 ) : (
-                  <div style={{ marginBottom: 16, padding: 12, background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)', borderRadius: 12 }}>
-                    <div style={{ fontSize: 12, color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>
-                      Executive thesis pending — signal is based on indicator confluence below.
+                  <div style={{ marginBottom: 16, padding: 14, background: 'rgba(245,158,11,0.08)', border: '1px solid rgba(245,158,11,0.25)', borderRadius: 12 }}>
+                    <div style={{ fontSize: 11, color: '#f59e0b', textTransform: 'uppercase', fontFamily: 'var(--font-mono)', fontWeight: 800, marginBottom: 6, display: 'flex', alignItems: 'center', gap: 6 }}>
+                      <AlertTriangle size={13} /> On-Chain Consensus Thesis Pending
                     </div>
+                    <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 12, fontFamily: 'var(--font-mono)', lineHeight: 1.5 }}>
+                      The AI-validator consensus thesis is taking longer to settle on GenLayer testnet. You can re-sign and retry consensus evaluation immediately below.
+                    </div>
+                    {onRetry && (
+                      <button
+                        onClick={() => {
+                          onClose()
+                          onRetry()
+                        }}
+                        style={{
+                          background: 'linear-gradient(135deg, #f59e0b, #ef4444)',
+                          color: '#fff',
+                          border: 'none',
+                          padding: '8px 16px',
+                          borderRadius: 10,
+                          fontSize: 12,
+                          fontWeight: 700,
+                          cursor: 'pointer',
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: 6,
+                          boxShadow: '0 0 15px rgba(245,158,11,0.3)'
+                        }}
+                      >
+                        <Zap size={14} /> Re-sign & Retry Signal On-Chain
+                      </button>
+                    )}
                   </div>
                 )}
 
@@ -551,7 +579,7 @@ On-Chain Proof: ${txHash ? `${explorerUrl}/tx/${txHash}` : 'GenLayer Bradbury Te
                     <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
                       Payment:
                       <a
-                        href={`https://zksync-os-testnet-genlayer.explorer.zksync.dev/tx/${paymentTxHash}`}
+                        href={`${explorerUrl}/tx/${paymentTxHash}`}
                         target="_blank" rel="noopener noreferrer"
                         style={{ color: '#10b981', fontWeight: 700, textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 3 }}
                       >
@@ -763,7 +791,30 @@ On-Chain Proof: ${txHash ? `${explorerUrl}/tx/${txHash}` : 'GenLayer Bradbury Te
             )}
           </div>
 
-          <div style={{ display: 'flex', gap: 10 }}>
+          <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+            {onRetry && (
+              <button
+                onClick={() => {
+                  onClose()
+                  onRetry()
+                }}
+                style={{
+                  background: 'rgba(245,158,11,0.15)',
+                  border: '1px solid rgba(245,158,11,0.4)',
+                  color: '#f59e0b',
+                  fontSize: 13,
+                  fontWeight: 700,
+                  padding: '8px 18px',
+                  borderRadius: 12,
+                  cursor: 'pointer',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: 6
+                }}
+              >
+                <Zap size={14} /> Re-sign & Retry
+              </button>
+            )}
             <button
               onClick={onClose}
               style={{

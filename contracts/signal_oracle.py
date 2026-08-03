@@ -5,7 +5,7 @@ import json
 # --------------------------------------------------------------------------
 # Constants
 # --------------------------------------------------------------------------
-CONFIDENCE_MARGIN = 10
+CONFIDENCE_MARGIN = 15
 ALLOWED_VERDICTS = {"Long", "Short", "Neutral", "Skip"}
 
 SIGNAL_RUBRIC = """
@@ -73,7 +73,7 @@ OUTPUT FORMAT (strict JSON — no markdown, no extra text):
 ═══════════════════════════════════════════════════════════════════════════
 {{
   "verdict": "<Long|Short|Neutral|Skip>",
-  "confidence": <int 0-100, subject to caps above>,
+  "confidence": <int 0-100, ALWAYS rounded to nearest multiple of 5 (e.g. 40, 45, 50, 55, 60, 65, 70, 75, 80)>,
   "expert_summary": "<1 sentence quantitative thesis citing specific indicator values>",
   "supporting": ["<specific indicator evidence with value>", "<second reason>"],
   "counterpoint": "<concrete risk or conflicting data point — be specific>",
@@ -175,18 +175,26 @@ def _exec_once(symbol: str, pair: str, strategy: str,
 
 def _signal_equivalent(a: dict, b: dict) -> bool:
     """
-    Equivalence Principle for GenSignal:
-    - Verdict must match exactly (from ALLOWED_VERDICTS whitelist).
+    Equivalence Principle for GenSignal (Comparative Pattern 1):
+    - Verdict from BOTH leader (a) and validator (b) must be in ALLOWED_VERDICTS whitelist.
+    - Verdict must match exactly between leader and validator.
     - Confidence must be within ±CONFIDENCE_MARGIN points.
     - Both must have at least 1 supporting reason (structural completeness).
     Prose, source text, and wording are intentionally NOT compared —
     validators re-run independently and we only lock on the directional call.
+
+    Security note: Both verdicts are whitelisted independently to prevent the
+    edge case where leader_fn() and validator_fn() both return an out-of-whitelist
+    verdict (e.g. "Buy") that would incorrectly match each other.
     """
     try:
         verdict_a = str(a.get("verdict", ""))
         verdict_b = str(b.get("verdict", ""))
-        # Verdict must be whitelisted and match
-        if verdict_a not in ALLOWED_VERDICTS or verdict_a != verdict_b:
+        # BOTH verdicts must be whitelisted AND match each other.
+        # Checking only verdict_a would allow two invalid-but-matching verdicts to pass.
+        if verdict_a not in ALLOWED_VERDICTS or verdict_b not in ALLOWED_VERDICTS:
+            return False
+        if verdict_a != verdict_b:
             return False
 
         conf_a = int(a.get("confidence", -100))

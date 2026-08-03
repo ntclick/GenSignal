@@ -1553,6 +1553,13 @@ function GenSignalAppContent() {
             setShowResultModal(false)
             setSignalReport(null)
           }}
+          onRetry={async () => {
+            setShowResultModal(false)
+            setSignalReport(null)
+            setLoading(true)
+            await ensureBackendAlive()
+            confirmAndExecute()
+          }}
           explorerUrl={(NETWORKS.find(n => n.id === activeNetwork) || NETWORKS[0]).explorerUrl}
         />
       )}
