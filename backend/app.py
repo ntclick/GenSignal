@@ -91,13 +91,9 @@ def get_client(network: str = "", endpoint: str = None):
         raise RuntimeError("GENLAYER_PRIVATE_KEY is not set in .env")
     key = PRIVATE_KEY if PRIVATE_KEY.startswith("0x") else "0x" + PRIVATE_KEY
     account = create_account(key)
-    target = network.lower() if network else DEFAULT_NETWORK
-    if target in ["studionet", "61999", "local"]:
-        chain = studionet
-        chosen_endpoint = endpoint or STUDIONET_RPC_URL
-    else:
-        chain = testnet_bradbury
-        chosen_endpoint = endpoint or PRIMARY_RPC_URL
+    # Always use Studionet — contract 0x73B568... only exists on Studionet
+    chain = studionet
+    chosen_endpoint = endpoint or STUDIONET_RPC_URL
 
     client = create_client(chain=chain, endpoint=chosen_endpoint, account=account)
 
@@ -585,15 +581,11 @@ def get_active_treasury_address(client=None, network: str = "studionet") -> str:
 
     return TREASURY_ADDRESS
 
+# Permanently locked contract address — never overridden by env vars
 ORACLE_ADDRESS = "0x73B568e186A16761c317F52D65e0d53a5f705a5b"
 
 def get_active_oracle_address(client=None, network: str = "studionet") -> str:
-    """Returns the persistent SignalOracle contract address 0x73B568e186A16761c317F52D65e0d53a5f705a5b on-chain."""
-    net_key = (network or "studionet").lower()
-    env_var_name = f"ORACLE_CONTRACT_ADDRESS_{net_key.upper()}"
-    env_oracle = os.getenv(env_var_name, os.getenv("ORACLE_CONTRACT_ADDRESS", ORACLE_ADDRESS))
-    if env_oracle and _is_valid_contract_address(env_oracle):
-        return env_oracle
+    """Always returns the locked SignalOracle contract 0x73B568e186A16761c317F52D65e0d53a5f705a5b on Studionet."""
     return ORACLE_ADDRESS
 
 def _extract_contract_address(receipt, fallback_tx: str = "") -> Optional[str]:
