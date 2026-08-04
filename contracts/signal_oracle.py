@@ -239,8 +239,8 @@ class SignalOracle(gl.Contract):
     evaluator: Address
     last_request_id: str
     signals_by_request: TreeMap[str, str]
-    used_payments: TreeMap[str, bool]
-    used_request_ids: TreeMap[str, bool]
+    used_payments: TreeMap[str, str]
+    used_request_ids: TreeMap[str, str]
 
     def __init__(self, symbol: str = "BTC", pair: str = "BTC/USDT", strategy: str = "signals", user_identity: str = ""):
         self.symbol = symbol
@@ -308,21 +308,21 @@ class SignalOracle(gl.Contract):
         req_id = request_id or f"req_{len(self.last_request_id)}"
         
         # 1. Replay Attack Check for request_id
-        if self.used_request_ids.get(req_id, False):
+        if self.used_request_ids.get(req_id, "") == "1":
             raise gl.vm.UserError("Replay Attack Detected: request_id has already been processed")
 
         # 2. Forged Payment & Payment Replay Check
         if not payment_tx_hash or payment_tx_hash.strip() == "":
             raise gl.vm.UserError("Forged Payment Error: missing verified micropayment transaction reference")
         
-        if self.used_payments.get(payment_tx_hash, False):
+        if self.used_payments.get(payment_tx_hash, "") == "1":
             raise gl.vm.UserError("Replay Attack Detected: payment_tx has already been used")
 
         # Mark payment and request_id as consumed
         self.payment_tx = payment_tx_hash
         self.paid = True
-        self.used_payments[payment_tx_hash] = True
-        self.used_request_ids[req_id] = True
+        self.used_payments[payment_tx_hash] = "1"
+        self.used_request_ids[req_id] = "1"
         self.last_request_id = req_id
 
         eval_symbol = str(self.symbol)
