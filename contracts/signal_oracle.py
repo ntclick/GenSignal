@@ -238,6 +238,9 @@ class SignalOracle(gl.Contract):
     result_json: str
     evaluator: Address
     last_request_id: str
+    signals_by_request: TreeMap[str, str]
+    used_payments: TreeMap[str, bool]
+    used_request_ids: TreeMap[str, bool]
 
     def __init__(self, symbol: str = "BTC", pair: str = "BTC/USDT", strategy: str = "signals", user_identity: str = ""):
         self.symbol = symbol
@@ -259,6 +262,9 @@ class SignalOracle(gl.Contract):
         self.result_json = "{}"
         self.evaluator = gl.message.sender_address
         self.last_request_id = ""
+        self.signals_by_request = TreeMap()
+        self.used_payments = TreeMap()
+        self.used_request_ids = TreeMap()
 
     @gl.public.write
     def evaluate_signal(self, market_data: str, payment_tx_hash: str = "",
@@ -297,11 +303,27 @@ class SignalOracle(gl.Contract):
             self.strategy = strategy
         if user_identity:
             self.user_identity = Address(user_identity)
-        if payment_tx_hash:
-            self.payment_tx = payment_tx_hash
-            self.paid = True
-        if request_id:
-            self.last_request_id = request_id
+
+        # ── SECURITY & REPLAY ATTACK VERIFICATION ───────────────────────────
+        req_id = request_id or f"req_{len(self.last_request_id)}"
+        
+        # 1. Replay Attack Check for request_id
+        if self.used_request_ids.get(req_id, False):
+            raise gl.vm.UserError("Replay Attack Detected: request_id has already been processed")
+
+        # 2. Forged Payment & Payment Replay Check
+        if not payment_tx_hash or payment_tx_hash.strip() == "":
+            raise gl.vm.UserError("Forged Payment Error: missing verified micropayment transaction reference")
+        
+        if self.used_payments.get(payment_tx_hash, False):
+            raise gl.vm.UserError("Replay Attack Detected: payment_tx has already been used")
+
+        # Mark payment and request_id as consumed
+        self.payment_tx = payment_tx_hash
+        self.paid = True
+        self.used_payments[payment_tx_hash] = True
+        self.used_request_ids[req_id] = True
+        self.last_request_id = req_id
 
         eval_symbol = str(self.symbol)
         eval_pair = str(self.pair)
@@ -338,11 +360,27 @@ class SignalOracle(gl.Contract):
         else:
             result = {"verdict": "Skip", "confidence": 0}
 
-        self._apply_result(result)
+        self._apply_result(result, req_id=req_id)
 
     @gl.public.view
-    def get_signal(self) -> dict:
-        """Returns the consensus trading signal report settled on-chain."""
+    def get_signal(self, request_id: str = "") -> dict:
+        """
+        Returns the consensus trading signal report settled on-chain.
+        If request_id is provided, returns the isolated signal for that specific request (TreeMap lookup).
+        Prevents concurrent polling race conditions where multiple users overwrite each other's state.
+        """
+        target_req = request_id or self.last_request_id
+        if target_req and self.signals_by_request.get(target_req, None):
+            try:
+                stored_str = self.signals_by_request.get(target_req)
+                return json.loads(stored_str)
+            except Exception:
+                pass
+
+        # Fallback to scalar state for legacy callers or empty request_id
+        if target_req != self.last_request_id and request_id:
+            return {"evaluated": False, "request_id": request_id, "status": "REQUEST_ID_MISMATCH_OR_PENDING"}
+
         data = {}
         try:
             if self.result_json and self.result_json != "{}":
@@ -376,7 +414,7 @@ class SignalOracle(gl.Contract):
         data["request_id"] = self.last_request_id
         return data
 
-    def _apply_result(self, result: dict) -> None:
+    def _apply_result(self, result: dict, req_id: str = "") -> None:
         """Write consensus result to on-chain storage. Always whitelists verdict."""
         verdict = str(result.get("verdict", "Skip"))
         if verdict not in ALLOWED_VERDICTS:
@@ -387,10 +425,37 @@ class SignalOracle(gl.Contract):
         self.counterpoint = str(result.get("counterpoint", ""))
         self.invalidation = str(result.get("invalidation", ""))
         self.expert_summary = str(result.get("expert_summary", ""))
-        trade = result.get("trade", {})
-        self.trade_json = json.dumps(trade) if isinstance(trade, dict) else "{}"
-        self.source = str(result.get("source", "Binance"))
+        try:
+            self.trade_json = json.dumps(result.get("trade", {}))
+        except Exception:
+            self.trade_json = "{}"
+        self.source = str(result.get("source", "Binance OHLCV klines"))
         self.source_type = str(result.get("source_type", "GenLayer LLM Consensus"))
-        self.result_json = json.dumps(result)
         self.evaluated = True
+        self.result_json = json.dumps(result)
+
+        # Store isolated result in per-request TreeMap for concurrent polling safety
+        current_req = req_id or self.last_request_id
+        if current_req:
+            full_req_data = {
+                "symbol": self.symbol,
+                "pair": self.pair,
+                "strategy": self.strategy,
+                "user_identity": str(self.user_identity),
+                "payment_tx": self.payment_tx,
+                "paid": self.paid,
+                "evaluated": True,
+                "verdict": self.verdict,
+                "confidence": int(self.confidence),
+                "supporting": result.get("supporting", []),
+                "counterpoint": self.counterpoint,
+                "invalidation": self.invalidation,
+                "expert_summary": self.expert_summary,
+                "trade": result.get("trade", {}),
+                "source": self.source,
+                "source_type": self.source_type,
+                "evaluator": str(self.evaluator),
+                "request_id": current_req
+            }
+            self.signals_by_request[current_req] = json.dumps(full_req_data)
         self.evaluator = gl.message.sender_address
