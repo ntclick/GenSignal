@@ -29,7 +29,7 @@ if not pk.startswith("0x"):
 TEST_PK = "0x5d9178152f90eab7dfffd454107069fe3853c1d416ef5b3464e1b2756ab8537c"
 account = create_account(TEST_PK)
 
-CONTRACT = os.getenv("ORACLE_CONTRACT_ADDRESS_STUDIONET", "0x8A6584c4D25BAC7e6Ab81a6063B152EEf4704dA1")
+CONTRACT = os.getenv("ORACLE_CONTRACT_ADDRESS_STUDIONET", "0x73B568e186A16761c317F52D65e0d53a5f705a5b")
 RPC_URL  = "https://studio.genlayer.com/api"
 
 client = create_client(chain=studionet, endpoint=RPC_URL, account=account)
