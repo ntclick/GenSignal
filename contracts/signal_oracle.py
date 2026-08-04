@@ -343,21 +343,14 @@ class SignalOracle(gl.Contract):
                 elif not isinstance(leader_calldata, str):
                     leader_calldata = json.dumps(leader_calldata) if isinstance(leader_calldata, dict) else str(leader_calldata)
                 
-                leader_result = json.loads(leader_calldata)
-                
-                verdict = str(leader_result.get("verdict", ""))
-                if verdict not in ALLOWED_VERDICTS:
-                    return False
-                
-                conf = int(leader_result.get("confidence", -1))
-                if conf < 0 or conf > 100:
-                    return False
-                
-                supp = leader_result.get("supporting", [])
-                if not isinstance(supp, list) or len(supp) == 0:
-                    return False
-                
-                return True
+                leader_result = json.loads(leader_calldata) if isinstance(leader_calldata, str) else leader_calldata
+
+                # Validator executes independent LLM inference pass (Comparative Mode)
+                validator_raw = _exec_once(eval_symbol, eval_pair, eval_strategy, eval_user_identity, eval_payment_tx, market_data)
+                validator_result = json.loads(validator_raw) if isinstance(validator_raw, str) else validator_raw
+
+                # Evaluate Equivalence Principle matching
+                return _signal_equivalent(leader_result, validator_result)
             except Exception:
                 return False
 
