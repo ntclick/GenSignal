@@ -549,43 +549,10 @@ function GenSignalAppContent() {
           return
         }
 
-        // ── Immediate done: GenLayer RPC offline, signal computed locally from live Binance data
-        if (data.status === 'done' && data.signal) {
-          const isLocalQuant = data.signal_source === 'local_quant' || data.signal?.signal_source === 'local_quant'
-          const evalTx = data.eval_tx_hash || null
-
-          if (evalTx) { setTxHash(evalTx); setEvaluateTxHash(evalTx) }
-          if (data.contract_address) setContractAddress(data.contract_address)
-
-          if (isLocalQuant) {
-            addLog(`⚡ [Local Quant] GenLayer Studionet RPC offline — Signal computed from live Binance data.`, 'warn')
-            addLog(`📊 Indicators: RSI, EMA Stack, MACD, Bollinger Bands applied directly on ${selectedCoin}.`, 'info')
-          } else {
-            addLog(`✅ GenLayer LLM Consensus settled on-chain!`, 'hi')
-          }
-
-          const coinObj = coins.find(c => c.sym === selectedCoin)
-          const currentCoinPrice = data.signal?.current_price || coinObj?.price
-          setSignalReport({
-            ...data.signal,
-            current_price: currentCoinPrice,
-            _is_local_quant: isLocalQuant
-          })
-          setPollingState(null)
-          setShowResultModal(true)
-          setError('')
-          setLoading(false)
-          setExecutionStep('')
-          return
-        }
-
-        // Handle structured error responses from backend
+        // ── Error paths from backend ────────────────────────────────────────
         if (data.status === 'error') {
           const errMsg = data.message || 'Signal evaluation failed'
           addLog(`❌ [Error] ${errMsg}`, 'error')
-          if (data.retryable) {
-            throw new Error(`${errMsg} (Tap Retry to try again)`)
-          }
           throw new Error(errMsg)
         }
 
@@ -593,33 +560,27 @@ function GenSignalAppContent() {
           throw new Error(`Oracle Consensus Execution Failed: ${data.reason || 'Consensus margin check failed or timed out'}`)
         }
 
+        // ── Require valid GenLayer on-chain transaction ─────────────────────
         const evalTx = data.evaluate_tx_hash || data.tx_hash
 
-        // Binance Fallback path: no evalTx required, signal is from Binance engine
-        const isBinanceFallback = data.proof?.fallback === true
-
         if (!data || !data.signal) {
-          throw new Error('No signal data returned from server.')
+          throw new Error('No signal data returned from GenLayer network.')
         }
 
-        if (!isBinanceFallback && (!evalTx || !evalTx.startsWith('0x') || evalTx.length < 60)) {
-          throw new Error('Transaction submission failed. No valid on-chain transaction hash returned from GenLayer RPC.')
+        if (!evalTx || !evalTx.startsWith('0x') || evalTx.length < 60) {
+          throw new Error('GenLayer RPC did not return a valid on-chain transaction hash. Please try again.')
         }
 
-        if (evalTx) setTxHash(evalTx)
-        if (evalTx) setEvaluateTxHash(evalTx)
+        setTxHash(evalTx)
+        setEvaluateTxHash(evalTx)
         if (data.deployment_tx_hash) setDeploymentTxHash(data.deployment_tx_hash)
         if (data.contract_address) setContractAddress(data.contract_address)
         if (data.payment_tx_hash) setPaymentTxHash(data.payment_tx_hash)
         if (data.proof) setProof(data.proof)
 
-        if (isBinanceFallback) {
-          addLog(`⚡ [Binance Engine] GenLayer validator timed out. Using real Binance indicator analysis.`, 'warn')
-        } else {
-          addLog(`✅ GenLayer LLM Consensus settled on-chain: ${evalTx?.slice(0, 18)}…`, 'hi')
-        }
+        addLog(`✅ GenLayer LLM Consensus settled on-chain: ${evalTx?.slice(0, 18)}…`, 'hi')
 
-        // Step 4: Explorer API Verification (only when a valid on-chain tx is present)
+        // Step 4: Explorer API Verification
         if (data.tx_hash) {
           setExecutionStep('Waiting for Explorer indexing...')
           addLog(`🔍 Verifying transaction indexing on official GenLayer Explorer API…`, 'hi')
@@ -643,7 +604,6 @@ function GenSignalAppContent() {
         setSignalReport(enrichedSignal)
         setShowResultModal(true)
 
-        // Success! Clear error & exit function
         setError('')
         setLoading(false)
         setExecutionStep('')

@@ -1173,38 +1173,16 @@ async def evaluate_signal(body: EvaluateRequest):
                 }
 
             except StudionetFallbackError as fb_err:
-                print(f"⚡ [Studionet Offline Fallback] GenLayer RPC unavailable: {fb_err}")
-                print(f"   → Computing signal locally from live Binance data (request_id: {request_id[:8]})")
-
-                local_signal = _generate_fallback_signal(
-                    symbol=symbol, pair=pair, strategy=body.strategy, timeframe=timeframe,
-                    last_price=last_price,
-                    rsi_14=rsi_14,
-                    rsi_zone=rsi_zone,
-                    ema_trend=ema_trend,
-                    macd_status=macd_status,
-                    rvol=rvol,
-                    last_buy_ratio=last_buy_ratio,
-                    atr_14=atr_14,
-                    atr_pct=atr_pct,
-                    bb_position=bb_position,
-                    daily_trend=daily_trend
+                error_detail = str(fb_err)
+                print(f"❌ [GenLayer RPC Error] Studionet unavailable: {error_detail}")
+                raise HTTPException(
+                    status_code=503,
+                    detail=f"GenLayer Studionet RPC unavailable — please try again. ({error_detail})"
                 )
-                local_signal["request_id"] = request_id
-                local_signal["user_identity"] = checksum_identity
-                local_signal["signal_source"] = "local_quant"
-
-                return {
-                    "status": "done",
-                    "eval_tx_hash": None,
-                    "contract_address": contract_address,
-                    "request_id": request_id,
-                    "signal": local_signal,
-                    "signal_source": "local_quant",
-                    "note": "Signal computed locally from live Binance data (GenLayer Studionet RPC temporarily unavailable)"
-                }
 
         except StudionetFallbackError:
+            raise
+        except HTTPException:
             raise
         except Exception as e:
             error_msg = str(e)
