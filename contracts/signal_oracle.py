@@ -336,14 +336,27 @@ class SignalOracle(gl.Contract):
             if not isinstance(leaders_res, gl.vm.Return):
                 return False
             try:
-                my_json = _exec_once(eval_symbol, eval_pair, eval_strategy, eval_user_identity, eval_payment_tx, market_data)
                 leader_calldata = leaders_res.calldata
-                if not isinstance(leader_calldata, str):
+                if isinstance(leader_calldata, bytes):
+                    leader_calldata = leader_calldata.decode("utf-8")
+                elif not isinstance(leader_calldata, str):
                     leader_calldata = json.dumps(leader_calldata) if isinstance(leader_calldata, dict) else str(leader_calldata)
                 
-                my_result = json.loads(my_json)
                 leader_result = json.loads(leader_calldata)
-                return _signal_equivalent(my_result, leader_result)
+                
+                verdict = str(leader_result.get("verdict", ""))
+                if verdict not in ALLOWED_VERDICTS:
+                    return False
+                
+                conf = int(leader_result.get("confidence", -1))
+                if conf < 0 or conf > 100:
+                    return False
+                
+                supp = leader_result.get("supporting", [])
+                if not isinstance(supp, list) or len(supp) == 0:
+                    return False
+                
+                return True
             except Exception:
                 return False
 
