@@ -1380,12 +1380,19 @@ def get_signal_status(tx_hash: str, contract_address: Optional[str] = "", reques
             return {"status": "pending", "note": "Contract address not resolved"}
 
         try:
-            client = get_singleton_client(net_key)
-            signal_report = client.read_contract(
+            raw_report = client.read_contract(
                 address=target_contract,
                 function_name="get_signal",
-                args=[]
+                args=[request_id or ""]
             )
+            if isinstance(raw_report, str):
+                try:
+                    signal_report = json.loads(raw_report)
+                except Exception:
+                    signal_report = raw_report
+            else:
+                signal_report = raw_report
+
             if signal_report and isinstance(signal_report, dict) and signal_report.get("evaluated"):
                 # Check request_id correlation — but only warn (not block) to avoid eternal pending
                 # on a singleton contract that's already settled a newer request
