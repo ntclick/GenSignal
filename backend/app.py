@@ -864,7 +864,10 @@ async def evaluate_signal(body: EvaluateRequest):
     timeframe = (body.timeframe or "4h").lower()
     network = body.network or "studionet"
     user_identity = body.user_identity or get_active_treasury_address()
+    checksum_identity = _to_checksum(user_identity) if _is_valid_contract_address(user_identity) else (user_identity or "")
     payment_tx = body.payment_tx or "0x_x402_auto"
+    import uuid
+    request_id = uuid.uuid4().hex
 
     # Map timeframe interval for Binance API
     tf_interval_map = {"15m": "15m", "1h": "1h", "4h": "4h", "1d": "1d"}
@@ -1188,8 +1191,6 @@ async def evaluate_signal(body: EvaluateRequest):
             print(f"✅ Using Singleton SignalOracle Contract (Model 2): {contract_address}")
 
             # 3. Execute evaluate_signal on Singleton Oracle with Exponential Backoff Retries
-            import uuid
-            request_id = uuid.uuid4().hex
             print(f"⚡ Executing evaluate_signal (req_id: {request_id[:8]}) on Singleton Oracle on-chain...")
 
             try:
