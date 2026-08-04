@@ -133,16 +133,27 @@ def _exec_once(symbol: str, pair: str, strategy: str,
             result_dict = raw
         else:
             text = str(raw).strip()
-            if text.startswith("```"):
-                text = text.split("\n", 1)[1] if "\n" in text else text
-                if text.rstrip().endswith("```"):
-                    text = text.rstrip()[:-3]
-            start, end = text.find("{"), text.rfind("}")
-            if start != -1 and end != -1:
-                try:
-                    result_dict = json.loads(text[start:end + 1])
-                except Exception:
-                    pass
+            if "```" in text:
+                parts = text.split("```")
+                for p in parts:
+                    p_clean = p.strip()
+                    if p_clean.startswith("json"):
+                        p_clean = p_clean[4:].strip()
+                    s, e = p_clean.find("{"), p_clean.rfind("}")
+                    if s != -1 and e != -1:
+                        try:
+                            result_dict = json.loads(p_clean[s:e+1])
+                            break
+                        except Exception:
+                            pass
+            if not isinstance(result_dict, dict):
+                start, end = text.find("{"), text.rfind("}")
+                if start != -1 and end != -1:
+                    candidate = text[start:end + 1]
+                    try:
+                        result_dict = json.loads(candidate)
+                    except Exception:
+                        pass
 
         if not isinstance(result_dict, dict):
             result_dict = {
