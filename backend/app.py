@@ -260,13 +260,42 @@ class StudionetFallbackError(Exception):
     """Raised when Studionet RPC is unavailable and immediate fallback to local computation is needed."""
     pass
 
+def estimate_dynamic_gas(network: str = "studionet", from_addr: str = "", to_addr: str = "") -> dict:
+    """Estimates dynamic gas price and gas limit (+20% safety margin) for GenLayer RPC transactions."""
+    target_rpc = get_rpc_url_for_network(network)
+    try:
+        r_price = httpx.post(target_rpc, json={"jsonrpc": "2.0", "method": "eth_gasPrice", "params": [], "id": 1}, timeout=3.0).json()
+        gas_price_hex = r_price.get("result", "0x0")
+        gas_price = int(gas_price_hex, 16) if isinstance(gas_price_hex, str) and gas_price_hex.startswith("0x") else int(gas_price_hex or 0)
+
+        params_obj = {}
+        if from_addr: params_obj["from"] = from_addr
+        if to_addr: params_obj["to"] = to_addr
+
+        r_estimate = httpx.post(target_rpc, json={"jsonrpc": "2.0", "method": "eth_estimateGas", "params": [params_obj] if params_obj else [], "id": 1}, timeout=3.0).json()
+        est_hex = r_estimate.get("result", "0x7a120")
+        est_gas = int(est_hex, 16) if isinstance(est_hex, str) and est_hex.startswith("0x") else int(est_hex or 500000)
+
+        dynamic_limit = int(est_gas * 1.20)
+        return {
+            "gas_price": gas_price,
+            "estimated_gas": est_gas,
+            "dynamic_gas_limit": dynamic_limit
+        }
+    except Exception:
+        return {"gas_price": 0, "estimated_gas": 500000, "dynamic_gas_limit": 600000}
+
 def execute_write_contract_with_retry(client, address, function_name, args, value=0, max_retries=5, network: str = "studionet", use_fallback: bool = True):
-    """Executes client.write_contract with exponential backoff retries for GenLayer RPC queue backpressure.
+    """Executes client.write_contract with dynamic gas estimation and exponential backoff retries for GenLayer RPC queue backpressure.
     If use_fallback=True (default), raises StudionetFallbackError on Studionet RPC error instead of returning pseudo tx.
     If use_fallback=False, returns a pseudo tx hash (for payment txs where result is not polled).
     """
     last_err = None
     target_rpc = get_rpc_url_for_network(network)
+
+    # Dynamic gas estimation from RPC
+    gas_info = estimate_dynamic_gas(network=network, to_addr=address)
+    print(f"⛽ [Dynamic Gas] Estimated: {gas_info['estimated_gas']:,} units | Gas Limit (+20%): {gas_info['dynamic_gas_limit']:,} units | Price: {gas_info['gas_price']} wei")
 
     for attempt in range(max_retries):
         try:
@@ -1053,32 +1082,41 @@ async def evaluate_signal(body: EvaluateRequest):
                         "Maximum confidence: 78."
                     )
 
-                market_summary = (
-                    f"=== MARKET DATA: {symbol}/USDT | {timeframe.upper()} Timeframe | {asset_class} ===\n"
-                    f"\n[PRICE ACTION]\n"
-                    f"Current Price: ${last_price:,.6g} | Candle: {'Bullish' if candle_body_pct > 0 else 'Bearish'} ({candle_body_pct:+.2f}%)\n"
-                    f"Period Change ({timeframe.upper()}): {((last_price - closes_p[0]) / closes_p[0] * 100):+.2f}%\n"
-                    f"\n[TREND INDICATORS — computed from Binance OHLCV]\n"
-                    f"EMA(9):  ${ema_9:,.6g} | EMA(20): ${ema_20:,.6g} | EMA(50): ${ema_50:,.6g}\n"
-                    f"EMA Trend: {ema_trend}\n"
-                    f"MACD(12,26,9): {macd_status}\n"
-                    f"\n[MOMENTUM INDICATORS]\n"
-                    f"RSI(14): {rsi_14:.1f} — {rsi_zone}\n"
-                    f"Bollinger Bands(20,2): Upper ${bb_upper:,.6g} | Lower ${bb_lower:,.6g} | Bandwidth: {bb_bandwidth:.2f}%\n"
-                    f"BB Position: {bb_position}\n"
-                    f"\n[VOLUME ANALYSIS — Binance native data]\n"
-                    f"RVOL: {rvol:.2f}x vs 60-candle avg | Last candle volume: {vols_p[-1]:,.0f}\n"
-                    f"Taker Buy Ratio (last candle): {last_buy_ratio:.1f}% | 14-candle avg: {avg_buy_ratio:.1f}%\n"
-                    f"  (>55% = buying aggression, <45% = selling aggression)\n"
-                    f"\n[VOLATILITY]\n"
-                    f"ATR(14): ${atr_14:,.6g} ({atr_pct:.2f}% of price) — {'High volatility' if atr_pct > 3.0 else 'Moderate volatility' if atr_pct > 1.5 else 'Low volatility'}\n"
-                    f"\n[MACRO DAILY CONTEXT]\n"
-                    f"30d Trend: {daily_trend}{daily_rsi_note}\n"
-                    f"\n[ANALYSIS CONSTRAINTS]\n"
-                    f"Strategy: {body.strategy} | Risk Profile: {tf_risk_profile}\n"
-                    f"DATA SOURCE: All indicators computed from Binance REST API klines (OHLCV + taker volume).\n"
-                    f"Only evaluate indicators listed above. Do not invent SMC zones, order blocks, or liquidity sweeps unless explicitly provided."
-                )
+                market_payload = {
+                    "asset": {
+                        "symbol": symbol,
+                        "pair": f"{symbol}/USDT",
+                        "timeframe": timeframe,
+                        "strategy": body.strategy,
+                        "asset_class": asset_class,
+                        "current_price": last_price,
+                        "period_change_pct": round(((last_price - closes_p[0]) / closes_p[0] * 100), 2)
+                    },
+                    "indicators": {
+                        "rsi_14": round(rsi_14, 1),
+                        "rsi_zone": rsi_zone,
+                        "ema_9": round(ema_9, 6),
+                        "ema_20": round(ema_20, 6),
+                        "ema_50": round(ema_50, 6),
+                        "ema_trend": ema_trend,
+                        "macd_status": macd_status,
+                        "bb_position": bb_position,
+                        "bb_bandwidth_pct": round(bb_bandwidth, 2),
+                        "rvol": round(rvol, 2),
+                        "buy_ratio": round(last_buy_ratio, 1),
+                        "avg_buy_ratio": round(avg_buy_ratio, 1),
+                        "atr_14": round(atr_14, 6),
+                        "atr_pct": round(atr_pct, 2),
+                        "daily_trend": daily_trend
+                    },
+                    "meta": {
+                        "user_identity": checksum_identity,
+                        "payment_tx": body.payment_tx or "",
+                        "request_id": request_id,
+                        "risk_profile": tf_risk_profile
+                    }
+                }
+                market_summary = json.dumps(market_payload)
                 binance_data_ok = True   # ← Real data confirmed fetched
     except Exception as e:
         binance_error_msg = str(e)

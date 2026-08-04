@@ -267,6 +267,28 @@ class SignalOracle(gl.Contract):
         Triggers AI-validator consensus after verifying x402 micropayment & ERC-8004 identity.
         Singleton Mode: Accepts dynamic symbol, pair, strategy, and user_identity on every call.
         """
+        # Auto-extract fields if market_data is passed as a single structured JSON payload
+        if market_data and market_data.strip().startswith("{"):
+            try:
+                payload = json.loads(market_data)
+                if isinstance(payload, dict):
+                    asset_info = payload.get("asset", {})
+                    meta_info = payload.get("meta", {})
+                    if not symbol:
+                        symbol = str(asset_info.get("symbol") or payload.get("symbol") or "")
+                    if not pair:
+                        pair = str(asset_info.get("pair") or payload.get("pair") or "")
+                    if not strategy:
+                        strategy = str(asset_info.get("strategy") or payload.get("strategy") or "")
+                    if not user_identity:
+                        user_identity = str(meta_info.get("user_identity") or payload.get("user_identity") or "")
+                    if not payment_tx_hash:
+                        payment_tx_hash = str(meta_info.get("payment_tx") or payload.get("payment_tx") or "")
+                    if not request_id:
+                        request_id = str(meta_info.get("request_id") or payload.get("request_id") or "")
+            except Exception:
+                pass
+
         if symbol:
             self.symbol = symbol
         if pair:
