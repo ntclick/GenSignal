@@ -1,3 +1,4 @@
+import json
 import pytest
 from genlayer import gl
 from contracts.signal_oracle import SignalOracle, _signal_equivalent
@@ -41,7 +42,7 @@ def test_signal_oracle_execution(monkeypatch):
         return res
 
     monkeypatch.setattr("genlayer.gl.vm.run_nondet_unsafe", mock_run_nondet_unsafe)
-    monkeypatch.setattr("genlayer.gl.nondet.exec_prompt", lambda prompt, response_format: mock_result)
+    monkeypatch.setattr("genlayer.gl.nondet.exec_prompt", lambda prompt, *args, **kwargs: mock_result)
 
     oracle = SignalOracle("BTC", "BTC/USDT", "RSI/EMA Trend", user_identity=mock_address)
     assert oracle.evaluated is False
@@ -50,6 +51,8 @@ def test_signal_oracle_execution(monkeypatch):
     oracle.evaluate_signal("BTC/USDT 4h price $65,200, RSI 55, EMA50 > EMA200", payment_tx_hash="0x9999")
 
     res = oracle.get_signal()
+    if isinstance(res, str):
+        res = json.loads(res)
     assert res["evaluated"] is True
     assert res["verdict"] == "Long"
     assert res["confidence"] == 78

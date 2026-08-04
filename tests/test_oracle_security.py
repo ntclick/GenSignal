@@ -62,6 +62,13 @@ def submit(oracle, payment_tx, request_id, market=None):
     oracle.evaluate_signal(json.dumps(payload))
 
 
+def get_sig(oracle, req_id=""):
+    res = oracle.get_signal(req_id)
+    if isinstance(res, str):
+        return json.loads(res)
+    return res
+
+
 # ===========================================================================
 # TEST GROUP 1 — Forged / Missing Payments
 # ===========================================================================
@@ -89,7 +96,7 @@ class TestForgedPayments:
         """Happy path: real payment_tx must succeed."""
         oracle = make_oracle(monkeypatch)
         submit(oracle, payment_tx="0xABC123", request_id="req_valid_1")
-        result = oracle.get_signal("req_valid_1")
+        result = get_sig(oracle, "req_valid_1")
         assert result["evaluated"] is True
         assert result["verdict"] == "Long"
         assert result["payment_tx"] == "0xABC123"
@@ -124,8 +131,8 @@ class TestReplayAttack:
         submit(oracle, payment_tx="0xPAY_X", request_id="req_x")
         submit(oracle, payment_tx="0xPAY_Y", request_id="req_y")
 
-        res_x = oracle.get_signal("req_x")
-        res_y = oracle.get_signal("req_y")
+        res_x = get_sig(oracle, "req_x")
+        res_y = get_sig(oracle, "req_y")
         assert res_x["evaluated"] is True
         assert res_y["evaluated"] is True
         assert res_x["request_id"] == "req_x"
@@ -140,7 +147,7 @@ class TestRequestIdMismatch:
     def test_unknown_request_id_returns_not_found(self, monkeypatch):
         """Querying an unknown request_id MUST return NOT_FOUND status, never raise."""
         oracle = make_oracle(monkeypatch)
-        result = oracle.get_signal("nonexistent_req_id")
+        result = get_sig(oracle, "nonexistent_req_id")
         # Must not return another user's data
         assert result.get("evaluated") is not True or result.get("request_id") == "nonexistent_req_id"
         # Must signal that this ID is not found or pending
@@ -159,12 +166,12 @@ class TestRequestIdMismatch:
         submit(oracle, payment_tx="0xPAY_USER_B", request_id="req_user_b")
 
         # Polling: User A reads their own request_id → must get THEIR own signal
-        res_a = oracle.get_signal("req_user_a")
+        res_a = get_sig(oracle, "req_user_a")
         assert res_a["evaluated"] is True
         assert res_a["request_id"] == "req_user_a"
 
         # Polling: User B reads their own request_id → must get THEIR own signal
-        res_b = oracle.get_signal("req_user_b")
+        res_b = get_sig(oracle, "req_user_b")
         assert res_b["evaluated"] is True
         assert res_b["request_id"] == "req_user_b"
 
@@ -177,7 +184,7 @@ class TestRequestIdMismatch:
         submit(oracle, payment_tx="0xPAY_CASE", request_id="req_CaseSensitive")
 
         # Slightly wrong ID — must not return the real result
-        result = oracle.get_signal("req_casesensitive")  # lowercase mismatch
+        result = get_sig(oracle, "req_casesensitive")  # lowercase mismatch
         # Should be not found or pending
         assert result.get("request_id") != "req_CaseSensitive" or result.get("evaluated") is False
 

@@ -124,11 +124,12 @@ def main():
     time.sleep(3)
 
     try:
-        result = client.read_contract(
+        raw_res = client.read_contract(
             address=CONTRACT,
             function_name="get_signal",
             args=[request_id]
         )
+        result = json.loads(raw_res) if isinstance(raw_res, str) else raw_res
         print("\n" + "=" * 70)
         print("  ACTUAL ON-CHAIN CONTRACT SIGNAL OUTPUT:")
         print("=" * 70)

@@ -382,24 +382,23 @@ class SignalOracle(gl.Contract):
         self._apply_result(result, req_id=req_id)
 
     @gl.public.view
-    def get_signal(self, request_id: str = "") -> dict:
+    def get_signal(self, request_id: str = "") -> str:
         """
-        Returns the consensus trading signal report settled on-chain.
-        If request_id is provided, returns the isolated signal for that specific request (TreeMap lookup).
-        Prevents concurrent polling race conditions where multiple users overwrite each other's state.
+        Returns the consensus trading signal report settled on-chain as a JSON string.
+        Returns str to ensure 100% GenVM view serialization compatibility.
         """
         target_req = request_id or self.last_request_id
         if target_req and target_req in self.signals_by_request:
             try:
                 stored_str = self.signals_by_request[target_req]
                 if stored_str:
-                    return json.loads(stored_str)
+                    return stored_str
             except Exception:
                 pass
 
         # Fallback to scalar state for legacy callers or empty request_id
         if target_req != self.last_request_id and request_id:
-            return {"evaluated": False, "request_id": request_id, "status": "REQUEST_ID_MISMATCH_OR_PENDING"}
+            return json.dumps({"evaluated": False, "request_id": request_id, "status": "REQUEST_ID_MISMATCH_OR_PENDING"})
 
         data = {}
         try:
@@ -432,7 +431,7 @@ class SignalOracle(gl.Contract):
         data["source_type"] = self.source_type
         data["evaluator"] = str(self.evaluator)
         data["request_id"] = self.last_request_id
-        return data
+        return json.dumps(data)
 
     def _apply_result(self, result: dict, req_id: str = "") -> None:
         """Write consensus result to on-chain storage. Always whitelists verdict."""
