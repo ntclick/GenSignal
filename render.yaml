@@ -10,7 +10,9 @@ services:
       - key: PYTHON_VERSION
         value: 3.11.9
       - key: DEFAULT_NETWORK
-        value: bradbury
+        value: studionet
+      - key: ORACLE_CONTRACT_ADDRESS_STUDIONET
+        value: "0x73B568e186A16761c317F52D65e0d53a5f705a5b"
       - key: GENLAYER_PRIVATE_KEY
         sync: false
       - key: GROQ_API_KEY
