@@ -177,32 +177,30 @@ def _signal_equivalent(a: dict, b: dict) -> bool:
     """
     Equivalence Principle for GenSignal (Comparative Pattern 1):
     - Verdict from BOTH leader (a) and validator (b) must be in ALLOWED_VERDICTS whitelist.
-    - Verdict must match exactly between leader and validator.
-    - Confidence must be within ±CONFIDENCE_MARGIN points.
-    - Both must have at least 1 supporting reason (structural completeness).
-    Prose, source text, and wording are intentionally NOT compared —
-    validators re-run independently and we only lock on the directional call.
-
-    Security note: Both verdicts are whitelisted independently to prevent the
-    edge case where leader_fn() and validator_fn() both return an out-of-whitelist
-    verdict (e.g. "Buy") that would incorrectly match each other.
+    - Verdicts match exactly, OR both are non-directional (Neutral / Skip).
+    - Confidence must be within ±25 points.
+    - Both must have structural completeness (at least 1 supporting reason).
     """
     try:
         verdict_a = str(a.get("verdict", ""))
         verdict_b = str(b.get("verdict", ""))
-        # BOTH verdicts must be whitelisted AND match each other.
-        # Checking only verdict_a would allow two invalid-but-matching verdicts to pass.
+        
+        # BOTH verdicts must be in the whitelist
         if verdict_a not in ALLOWED_VERDICTS or verdict_b not in ALLOWED_VERDICTS:
             return False
-        if verdict_a != verdict_b:
-            return False
 
+        # Exact verdict match OR equivalent non-directional calls (Neutral/Skip)
+        if verdict_a != verdict_b:
+            if not ({verdict_a, verdict_b} <= {"Neutral", "Skip"}):
+                return False
+
+        # Confidence margin tolerance (25 points for cross-LLM temperature variance)
         conf_a = int(a.get("confidence", -100))
         conf_b = int(b.get("confidence", -100))
-        if abs(conf_a - conf_b) > CONFIDENCE_MARGIN:
+        if abs(conf_a - conf_b) > 25:
             return False
 
-        # Both results must be structurally complete (have at least 1 supporting reason)
+        # Structural completeness check
         supp_a = a.get("supporting", [])
         supp_b = b.get("supporting", [])
         if len(supp_a) == 0 or len(supp_b) == 0:
