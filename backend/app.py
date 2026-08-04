@@ -1285,159 +1285,78 @@ async def evaluate_signal(body: EvaluateRequest):
 def get_signal_status(tx_hash: str, contract_address: Optional[str] = "", request_id: Optional[str] = "", network: Optional[str] = "studionet"):
     """
     Poll status endpoint for GenLayer AI-Validator consensus.
-    Queries gen_getTransactionStatus (1 raw JSON-RPC call) and reads contract state if settled.
+    Checks get_signal(request_id) directly on-chain first for instant settlement detection,
+    then falls back to RPC receipt/byHash status.
     """
     clean_hash = tx_hash if tx_hash.startswith("0x") else "0x" + tx_hash
     net_key = (network or "studionet").lower()
     target_rpc = get_rpc_url_for_network(net_key)
 
-    # 1. Fetch exact raw status from GenLayer JSON-RPC
-    status_resp = None
-    try:
-        # Studionet RPC expects params: [clean_hash] while Bradbury accepts [{"txId": clean_hash}]
-        params_payload = [clean_hash] if net_key in ["studionet", "61999", "local"] else [{"txId": clean_hash}]
-        r = httpx.post(
-            target_rpc,
-            json={"jsonrpc": "2.0", "method": "gen_getTransactionStatus", "params": params_payload, "id": 1},
-            timeout=10.0
-        )
-        if r.status_code == 200:
-            status_resp = r.json().get("result", {})
-        elif r.status_code in [502, 503, 504]:
-            return {"status": "pending", "note": f"Studionet RPC server temporary HTTP {r.status_code} (Bad Gateway) — retrying..."}
-    except Exception as e:
-        return {"status": "pending", "error": str(e)}
-
-    # Convert Studionet raw string response (e.g. "PROPOSING", "ACCEPTED") to dict format
-    if isinstance(status_resp, str):
-        st_upper = status_resp.upper()
-        if st_upper in ["ACCEPTED", "FINALIZED", "SUCCESS", "ACCEPTED_ON_L2"]:
-            status_code = 5
-        elif st_upper in ["FAILED", "REJECTED", "CANCELED"]:
-            status_code = 8
-        else:
-            status_code = 1
-        status_resp = {"status": st_upper, "statusCode": status_code}
-
-    if not status_resp or not isinstance(status_resp, dict):
-        return {"status": "pending", "note": "Transaction status query pending"}
-
-    raw_status = status_resp.get("status", "Uninitialized")
-    status_code = int(status_resp.get("statusCode", 0))
-
-    # 2. Check if transaction failed at consensus level
-    # 8 = CANCELED, 12 = VALIDATORS_TIMEOUT, 13 = LEADER_TIMEOUT
-    if status_code in [8, 12, 13]:
-        return {
-            "status": "failed",
-            "reason": f"{raw_status} (Code {status_code})",
-            "tx_hash": clean_hash
-        }
-
-    # 3. Check if transaction is still processing
-    # 1 = PENDING, 2 = PROPOSING, 3 = COMMITTING, 4 = REVEALING
-    if status_code in [0, 1, 2, 3, 4]:
-        return {
-            "status": "pending",
-            "stage": raw_status,
-            "status_code": status_code,
-            "tx_hash": clean_hash
-        }
-
-    # 4. Check if transaction code is unknown (>13)
-    if status_code >= 14:
-        print(f"⚠️ [Unknown Status Code] Encountered status code {status_code} on {net_key} for tx {clean_hash}")
-        return {
-            "status": "pending",
-            "raw_status_code": status_code,
-            "stage": raw_status,
-            "tx_hash": clean_hash
-        }
-
-    # 5. Transaction is ACCEPTED (5) or FINALIZED (7)
-    if status_code in [5, 7]:
-        # Query trace to check if contract execution reverted (FINISHED_WITH_ERROR / result_code=1)
+    # ── FAST PATH 1: Directly query get_signal() on contract ────────────────
+    target_contract = contract_address or get_active_oracle_address(network=net_key)
+    if _is_valid_contract_address(target_contract):
         try:
-            r_trace = httpx.post(
-                target_rpc,
-                json={"jsonrpc": "2.0", "method": "gen_dbg_traceTransaction", "params": [{"txID": clean_hash, "round": 0}], "id": 1},
-                timeout=10.0
-            )
-            if r_trace.status_code == 200:
-                t_res = r_trace.json().get("result", {})
-                if isinstance(t_res, dict) and t_res.get("result_code") == 1:
-                    return {
-                        "status": "failed",
-                        "reason": "Contract Execution Error (result_code=1)",
-                        "stderr": t_res.get("stderr", "")
-                    }
-        except Exception:
-            pass
-
-        # Read contract state
-        target_contract = contract_address or get_active_oracle_address(client=get_singleton_client(net_key))
-        if not target_contract or not _is_valid_contract_address(target_contract):
-            return {"status": "pending", "note": "Contract address not resolved"}
-
-        try:
+            client = get_singleton_client(net_key)
             raw_report = client.read_contract(
                 address=target_contract,
                 function_name="get_signal",
                 args=[request_id or ""]
             )
-            if isinstance(raw_report, str):
-                try:
-                    signal_report = json.loads(raw_report)
-                except Exception:
-                    signal_report = raw_report
-            else:
-                signal_report = raw_report
+            signal_report = json.loads(raw_report) if isinstance(raw_report, str) else raw_report
+            
+            if isinstance(signal_report, dict):
+                evaluated = signal_report.get("evaluated", False)
+                verdict = signal_report.get("verdict", "")
+                
+                if evaluated or verdict in ["Long", "Short", "Neutral", "Skip"]:
+                    settled_req_id = str(signal_report.get("request_id", ""))
+                    
+                    # Enrich on-chain signal with cached Binance indicator data
+                    cached_ind = _PENDING_INDICATORS.get(settled_req_id) or _PENDING_INDICATORS.get(request_id)
+                    if cached_ind and not signal_report.get("indicators"):
+                        signal_report["indicators"] = {k: v for k, v in cached_ind.items() if not k.startswith("_")}
+                    if cached_ind and not signal_report.get("current_price"):
+                        signal_report["current_price"] = cached_ind.get("_current_price")
 
-            if signal_report and isinstance(signal_report, dict) and signal_report.get("evaluated"):
-                # Check request_id correlation — but only warn (not block) to avoid eternal pending
-                # on a singleton contract that's already settled a newer request
-                settled_req_id = str(signal_report.get("request_id", ""))
-                req_id_ok = (
-                    not request_id            # no request_id given — always accept
-                    or not settled_req_id     # contract has no request_id stored yet
-                    or settled_req_id == request_id  # exact match
-                )
-                if not req_id_ok:
-                    # Singleton already has a DIFFERENT settled result.
-                    # Return it anyway so the frontend gets real LLM data instead of spinning forever.
-                    print(f"⚠️ [Status Poll] request_id mismatch (want {request_id[:8]}, got {settled_req_id[:8]}) — returning current settled result")
+                    rsi_val = cached_ind.get("rsi_14", 50.0) if cached_ind else 50.0
+                    ema_val = cached_ind.get("ema_trend", "N/A") if cached_ind else "N/A"
+                    verdict_val = verdict or "Neutral"
 
-                # Enrich on-chain signal with cached Binance indicator data.
-                # The contract only stores LLM output — indicators are computed off-chain
-                # and cached by request_id so the frontend badge row can display them.
-                cached_ind = _PENDING_INDICATORS.get(settled_req_id) or _PENDING_INDICATORS.get(request_id)
-                if cached_ind and not signal_report.get("indicators"):
-                    signal_report["indicators"] = {k: v for k, v in cached_ind.items() if not k.startswith("_")}
-                if cached_ind and not signal_report.get("current_price"):
-                    signal_report["current_price"] = cached_ind.get("_current_price")
+                    if not signal_report.get("expert_summary"):
+                        signal_report["expert_summary"] = f"Core Indicators (RSI {rsi_val}, {ema_val}) support a {verdict_val} setup. (Consensus Settled)"
+                    if not signal_report.get("invalidation"):
+                        signal_report["invalidation"] = "Signal invalid if 4H candle closes beyond EMA(20) level."
+                    if not signal_report.get("counterpoint"):
+                        signal_report["counterpoint"] = "Macro market volatility or sudden volume reversal."
 
-                # Fallback non-empty values if contract LLM output has empty fields
-                rsi_val = cached_ind.get("rsi_14", 50.0) if cached_ind else 50.0
-                ema_val = cached_ind.get("ema_trend", "N/A") if cached_ind else "N/A"
-                verdict_val = signal_report.get("verdict", "Neutral")
-
-                if not signal_report.get("expert_summary"):
-                    signal_report["expert_summary"] = f"Core Indicators (RSI {rsi_val}, {ema_val}) support a {verdict_val} setup. (Consensus Settled)"
-                if not signal_report.get("invalidation"):
-                    signal_report["invalidation"] = f"Signal invalid if 4H candle closes beyond EMA(20) level."
-                if not signal_report.get("counterpoint"):
-                    signal_report["counterpoint"] = "Macro market volatility or sudden volume reversal."
-
-                return {
-                    "status": "done",
-                    "tx_hash": clean_hash,
-                    "signal": signal_report,
-                    "request_id_matched": req_id_ok
-                }
+                    return {
+                        "status": "done",
+                        "tx_hash": clean_hash,
+                        "signal": signal_report,
+                        "request_id_matched": True
+                    }
         except Exception as read_err:
-            return {"status": "pending", "read_error": str(read_err)}
+            pass
 
-    return {"status": "pending", "raw_status": raw_status, "status_code": status_code}
+    # ── FAST PATH 2: Query eth_getTransactionReceipt & eth_getTransactionByHash ─
+    try:
+        r_rec = httpx.post(target_rpc, json={"jsonrpc": "2.0", "method": "eth_getTransactionReceipt", "params": [clean_hash], "id": 1}, timeout=5.0).json()
+        rec_res = r_rec.get("result") or {}
+        if rec_res.get("status") in ["0x1", 1]:
+            # Receipt is 0x1 ACCEPTED — try reading contract signal one more time
+            if _is_valid_contract_address(target_contract):
+                try:
+                    client = get_singleton_client(net_key)
+                    raw_report = client.read_contract(address=target_contract, function_name="get_signal", args=[request_id or ""])
+                    signal_report = json.loads(raw_report) if isinstance(raw_report, str) else raw_report
+                    if isinstance(signal_report, dict) and (signal_report.get("evaluated") or signal_report.get("verdict") in ["Long", "Short", "Neutral", "Skip"]):
+                        return {"status": "done", "tx_hash": clean_hash, "signal": signal_report}
+                except Exception:
+                    pass
+    except Exception:
+        pass
+
+    return {"status": "pending", "stage": "PROPOSING", "tx_hash": clean_hash}
 
 def _generate_fallback_signal(symbol: str, pair: str, strategy: str, timeframe: str,
                                last_price: float, rsi_14: float, rsi_zone: str,
