@@ -585,64 +585,16 @@ def get_active_treasury_address(client=None, network: str = "studionet") -> str:
 
     return TREASURY_ADDRESS
 
+ORACLE_ADDRESS = "0x73B568e186A16761c317F52D65e0d53a5f705a5b"
+
 def get_active_oracle_address(client=None, network: str = "studionet") -> str:
-    """Singleton Oracle (Model 2): Loads persisted SignalOracle from .env or deploys 1 shared contract per network."""
+    """Returns the persistent SignalOracle contract address 0x73B568e186A16761c317F52D65e0d53a5f705a5b on-chain."""
     net_key = (network or "studionet").lower()
-    if net_key in _DEPLOYED_ORACLE_ADDRESSES and _is_valid_contract_address(_DEPLOYED_ORACLE_ADDRESSES[net_key]):
-        return _DEPLOYED_ORACLE_ADDRESSES[net_key]
-
     env_var_name = f"ORACLE_CONTRACT_ADDRESS_{net_key.upper()}"
-    env_oracle = os.getenv(env_var_name, "")
-    if not env_oracle and net_key == "bradbury":
-        env_oracle = os.getenv("ORACLE_CONTRACT_ADDRESS", "")
-
-    if env_oracle and len(env_oracle) == 42 and env_oracle.startswith("0x"):
-        _DEPLOYED_ORACLE_ADDRESSES[net_key] = env_oracle
+    env_oracle = os.getenv(env_var_name, os.getenv("ORACLE_CONTRACT_ADDRESS", ORACLE_ADDRESS))
+    if env_oracle and _is_valid_contract_address(env_oracle):
         return env_oracle
-
-    if client is None:
-        try:
-            client = get_singleton_client(net_key)
-        except Exception:
-            return ""
-
-    try:
-        user_id = _to_checksum(str(client.local_account.address))
-        oracle_code = CONTRACT_ORACLE.read_text(encoding="utf-8")
-        deploy_tx = client.deploy_contract(code=oracle_code, args=["BTC", "BTC/USDT", "signals", user_id])
-        if deploy_tx:
-            deploy_tx_str = str(deploy_tx).strip()
-            print(f"📜 [Singleton Deploy - {net_key}] SignalOracle deploy tx: {deploy_tx_str}")
-            receipt = client.wait_for_transaction_receipt(
-                transaction_hash=deploy_tx_str,
-                status=TransactionStatus.ACCEPTED
-            )
-            resolved_oracle = _extract_contract_address(receipt)
-            if resolved_oracle:
-                _DEPLOYED_ORACLE_ADDRESSES[net_key] = resolved_oracle
-                print(f"🎉 [Singleton Deploy - {net_key}] Deployed persistent Singleton SignalOracle: {resolved_oracle}")
-                try:
-                    env_text = ENV_FILE.read_text(encoding="utf-8")
-                    if env_var_name in env_text:
-                        import re as _re
-                        env_text = _re.sub(
-                            rf"{env_var_name}=.*",
-                            f"{env_var_name}={resolved_oracle}",
-                            env_text
-                        )
-                    else:
-                        env_text += f"\n{env_var_name}={resolved_oracle}\n"
-                    ENV_FILE.write_text(env_text, encoding="utf-8")
-                    print(f"💾 [Singleton Deploy] Oracle address persisted to .env as {env_var_name}")
-                except Exception as _pe:
-                    print(f"⚠️ Could not persist oracle to .env: {_pe}")
-                import time as _time_delay
-                _time_delay.sleep(2.0)
-                return resolved_oracle
-    except Exception as e:
-        print(f"❌ [Singleton Deploy Error - {net_key}] Failed to deploy SignalOracle: {e}")
-
-    return ""
+    return ORACLE_ADDRESS
 
 def _extract_contract_address(receipt, fallback_tx: str = "") -> Optional[str]:
     if not receipt and not fallback_tx:
@@ -1165,30 +1117,12 @@ async def evaluate_signal(body: EvaluateRequest):
             else:
                 print(f"⚡ [Payment] Env wallet mode — skipping payment check.")
 
-            # 2. Model 2: Reuse Singleton SignalOracle Instance
+            # 2. Use persistent SignalOracle contract instance (0x73B568e186A16761c317F52D65e0d53a5f705a5b)
             contract_address = get_active_oracle_address(client, network=body.network or "studionet")
             if not contract_address or not _is_valid_contract_address(contract_address):
-                print(f"🚀 Deploying Singleton SignalOracle once for {symbol}...")
-                code = CONTRACT_ORACLE.read_text(encoding="utf-8")
-                deploy_tx = client.deploy_contract(
-                    code=code,
-                    args=[symbol, pair, body.strategy, checksum_identity]
-                )
-                if deploy_tx:
-                    deploy_tx_hash = _clean_tx_hash(deploy_tx)
-                    deploy_receipt = client.wait_for_transaction_receipt(
-                        transaction_hash=deploy_tx_hash,
-                        status=TransactionStatus.ACCEPTED
-                    )
-                    contract_address = _extract_contract_address(deploy_receipt)
-                    if contract_address:
-                        global _DEPLOYED_ORACLE_ADDRESS
-                        _DEPLOYED_ORACLE_ADDRESS = contract_address
+                raise Exception("Failed to resolve persistent SignalOracle contract address")
 
-            if not contract_address or not _is_valid_contract_address(contract_address):
-                raise Exception("Failed to resolve Singleton SignalOracle contract address")
-
-            print(f"✅ Using Singleton SignalOracle Contract (Model 2): {contract_address}")
+            print(f"✅ Using Persistent SignalOracle Contract: {contract_address}")
 
             # 3. Execute evaluate_signal on Singleton Oracle with Exponential Backoff Retries
             print(f"⚡ Executing evaluate_signal (req_id: {request_id[:8]}) on Singleton Oracle on-chain...")
